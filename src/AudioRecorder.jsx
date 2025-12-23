@@ -38,7 +38,20 @@ function AudioRecorder() {
       mediaRecorderRef.current.start();
       setRecording(true);
     } catch (err) {
-      setError('Failed to access microphone. Please grant permission and try again.');
+      let message = 'Failed to access microphone. Please try again.';
+      if (err && typeof err === 'object') {
+        if (err.name === 'NotAllowedError' || err.name === 'SecurityError') {
+          message =
+            'Microphone access was denied. Please allow microphone permissions in your browser settings and try again.';
+        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+          message =
+            'No microphone was found. Please connect a microphone or ensure it is enabled, then try again.';
+        } else if (err.name === 'NotSupportedError') {
+          message =
+            'Microphone recording is not supported with the current browser or settings. Please try a different browser or update your settings.';
+        }
+      }
+      setError(message);
       console.error('Error accessing microphone:', err);
     }
   };
