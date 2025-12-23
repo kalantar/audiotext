@@ -64,6 +64,10 @@ function AudioRecorder() {
   const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
+      const stream = mediaRecorderRef.current.stream;
+      if (stream && typeof stream.getTracks === 'function') {
+        stream.getTracks().forEach((track) => track.stop());
+      }
       setRecording(false);
       
       // Stop all media stream tracks to release microphone access
