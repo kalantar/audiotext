@@ -6,12 +6,16 @@ function AudioRecorder() {
   const [error, setError] = useState('');
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const streamRef = useRef(null);
 
   useEffect(() => {
-    // Cleanup function to revoke object URL when component unmounts or audioURL changes
+    // Cleanup function to revoke object URL and stop media streams when component unmounts
     return () => {
       if (audioURL) {
         URL.revokeObjectURL(audioURL);
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
       }
     };
   }, [audioURL]);
@@ -20,6 +24,7 @@ function AudioRecorder() {
     try {
       setError('');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
       mediaRecorderRef.current = new MediaRecorder(stream);
       audioChunksRef.current = [];
 
@@ -60,22 +65,23 @@ function AudioRecorder() {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
       setRecording(false);
+      
+      // Stop all media stream tracks to release microphone access
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
     }
   };
+
+  return (
+    <div style={{ padding: 32 }}>
       <button
         onClick={recording ? stopRecording : startRecording}
         aria-pressed={recording}
         aria-label={recording ? 'Stop audio recording' : 'Start audio recording'}
       >
         {recording ? 'Stop Recording' : 'Start Recording'}
-      </button>
-      <button
-        onClick={playAudio}
-        disabled={!audioURL}
-        style={{ marginLeft: 16 }}
-        aria-label="Play recorded audio"
-      >
-        Play Recording
       </button>
       {error && (
         <div
