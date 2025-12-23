@@ -12,7 +12,7 @@ A minimal React web application for recording audio in the browser.
 
 ### Prerequisites
 
-- Node.js (v14 or higher)
+- Node.js (v18 or higher)
 - npm
 
 ### Installation
