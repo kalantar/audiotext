@@ -1,41 +1,64 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 
 function AudioRecorder() {
   const [recording, setRecording] = useState(false);
   const [audioURL, setAudioURL] = useState('');
+  const [error, setError] = useState('');
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
-  const startRecording = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    mediaRecorderRef.current = new window.MediaRecorder(stream);
-    audioChunksRef.current = [];
-
-    mediaRecorderRef.current.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        audioChunksRef.current.push(event.data);
+  useEffect(() => {
+    // Cleanup function to revoke object URL when component unmounts or audioURL changes
+    return () => {
+      if (audioURL) {
+        URL.revokeObjectURL(audioURL);
       }
     };
+  }, [audioURL]);
 
-    mediaRecorderRef.current.onstop = () => {
-      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-      const url = URL.createObjectURL(audioBlob);
-      setAudioURL(url);
-    };
+  const startRecording = async () => {
+    try {
+      setError('');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      audioChunksRef.current = [];
 
-    mediaRecorderRef.current.start();
-    setRecording(true);
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorderRef.current.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const url = URL.createObjectURL(audioBlob);
+        setAudioURL(url);
+      };
+
+      mediaRecorderRef.current.start();
+      setRecording(true);
+    } catch (err) {
+      setError('Failed to access microphone. Please grant permission and try again.');
+      console.error('Error accessing microphone:', err);
+    }
   };
 
   const stopRecording = () => {
-    mediaRecorderRef.current.stop();
-    setRecording(false);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+      setRecording(false);
+    }
   };
 
-  const playAudio = () => {
+  const playAudio = async () => {
     if (audioURL) {
       const audio = new Audio(audioURL);
-      audio.play();
+      try {
+        await audio.play();
+      } catch (err) {
+        setError('Failed to play audio. Please try again.');
+        console.error('Error playing audio:', err);
+      }
     }
   };
 
@@ -47,6 +70,7 @@ function AudioRecorder() {
       <button onClick={playAudio} disabled={!audioURL} style={{ marginLeft: 16 }}>
         Play Recording
       </button>
+      {error && <div style={{ color: 'red', marginTop: 16 }}>{error}</div>}
       {audioURL && <audio src={audioURL} controls style={{ display: 'block', marginTop: 16 }} />}
     </div>
   );
