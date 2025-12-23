@@ -50,25 +50,10 @@ function AudioRecorder() {
     }
   };
 
-  const playAudio = async () => {
-    if (audioURL) {
-      const audio = new Audio(audioURL);
-      try {
-        await audio.play();
-      } catch (err) {
-        setError('Failed to play audio. Please try again.');
-        console.error('Error playing audio:', err);
-      }
-    }
-  };
-
   return (
     <div style={{ padding: 32 }}>
       <button onClick={recording ? stopRecording : startRecording}>
         {recording ? 'Stop Recording' : 'Start Recording'}
-      </button>
-      <button onClick={playAudio} disabled={!audioURL} style={{ marginLeft: 16 }}>
-        Play Recording
       </button>
       {error && <div style={{ color: 'red', marginTop: 16 }}>{error}</div>}
       {audioURL && <audio src={audioURL} controls style={{ display: 'block', marginTop: 16 }} />}
