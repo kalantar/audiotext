@@ -62,13 +62,30 @@ function AudioRecorder() {
       setRecording(false);
     }
   };
-
-  return (
-    <div style={{ padding: 32 }}>
-      <button onClick={recording ? stopRecording : startRecording}>
+      <button
+        onClick={recording ? stopRecording : startRecording}
+        aria-pressed={recording}
+        aria-label={recording ? 'Stop audio recording' : 'Start audio recording'}
+      >
         {recording ? 'Stop Recording' : 'Start Recording'}
       </button>
-      {error && <div style={{ color: 'red', marginTop: 16 }}>{error}</div>}
+      <button
+        onClick={playAudio}
+        disabled={!audioURL}
+        style={{ marginLeft: 16 }}
+        aria-label="Play recorded audio"
+      >
+        Play Recording
+      </button>
+      {error && (
+        <div
+          style={{ color: 'red', marginTop: 16 }}
+          role="alert"
+          aria-live="assertive"
+        >
+          {error}
+        </div>
+      )}
       {audioURL && <audio src={audioURL} controls style={{ display: 'block', marginTop: 16 }} />}
     </div>
   );
