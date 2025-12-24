@@ -71,14 +71,14 @@ export default function App() {
 
     try {
       console.log('Loading Sound');
-      const { sound } = await Audio.Sound.createAsync(
+      const { sound: audioSound } = await Audio.Sound.createAsync(
         { uri: recordingUri },
         { shouldPlay: true }
       );
-      setSound(sound);
+      setSound(audioSound);
 
       console.log('Playing Sound');
-      await sound.playAsync();
+      await audioSound.playAsync();
     } catch (err) {
       console.error('Failed to play sound', err);
       Alert.alert('Error', 'Failed to play sound: ' + err.message);
