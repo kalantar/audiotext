@@ -4,8 +4,9 @@ import { StyleSheet, Text, View, TouchableOpacity, Alert } from 'react-native';
 import { Audio } from 'expo-av';
 
 // Development-only logging helper
-// To enable debug logs during development, set __DEV__ to true
-// In production builds, __DEV__ is automatically set to false by React Native
+// __DEV__ is a built-in React Native constant that is automatically:
+// - true in development builds (enables logging)
+// - false in production builds (disables logging for performance and security)
 const debugLog = (...args) => {
   if (__DEV__) {
     console.log(...args);
@@ -95,6 +96,8 @@ export default function App() {
       // If a sound is already loaded, unload it before creating a new one
       if (sound) {
         debugLog('Unloading previous sound before loading new one');
+        // Remove any existing status update listener before unloading
+        await sound.setOnPlaybackStatusUpdate(null);
         await sound.unloadAsync();
         setSound(null);
       }
@@ -105,14 +108,15 @@ export default function App() {
         { uri: recordingUri },
         { shouldPlay: true }
       );
-      setSound(audioSound);
-
+      
       // Set up playback status listener to track when playback finishes
       audioSound.setOnPlaybackStatusUpdate((status) => {
         if (status.didJustFinish) {
           setIsPlaying(false);
         }
       });
+      
+      setSound(audioSound);
 
       debugLog('Playing Sound');
       await audioSound.playAsync();
