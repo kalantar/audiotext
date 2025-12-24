@@ -3,15 +3,31 @@ import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View, TouchableOpacity, Alert } from 'react-native';
 import { Audio } from 'expo-av';
 
+// Development-only logging helper
+// To enable debug logs during development, set __DEV__ to true
+// In production builds, __DEV__ is automatically set to false by React Native
+const debugLog = (...args) => {
+  if (__DEV__) {
+    console.log(...args);
+  }
+};
+
 export default function App() {
   const [recording, setRecording] = useState(null);
   const [sound, setSound] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [recordingUri, setRecordingUri] = useState(null);
 
   async function startRecording() {
+    // Prevent starting a new recording if one is already in progress
+    if (recording || isRecording) {
+      debugLog('Recording already in progress, ignoring start request');
+      return;
+    }
+
     try {
-      console.log('Requesting permissions..');
+      debugLog('Requesting permissions..');
       const permission = await Audio.requestPermissionsAsync();
       
       if (permission.status !== 'granted') {
@@ -24,13 +40,13 @@ export default function App() {
         playsInSilentModeIOS: true,
       });
 
-      console.log('Starting recording..');
+      debugLog('Starting recording..');
       const { recording: newRecording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
       setRecording(newRecording);
       setIsRecording(true);
-      console.log('Recording started');
+      debugLog('Recording started');
     } catch (err) {
       console.error('Failed to start recording', err);
       Alert.alert('Error', 'Failed to start recording: ' + err.message);
@@ -38,13 +54,13 @@ export default function App() {
   }
 
   async function stopRecording() {
-    console.log('Stopping recording..');
-    setIsRecording(false);
+    debugLog('Stopping recording..');
     
     if (!recording) {
       return;
     }
 
+    setIsRecording(false);
     const currentRecording = recording;
 
     try {
@@ -54,7 +70,7 @@ export default function App() {
       });
       const uri = currentRecording.getURI();
       setRecordingUri(uri);
-      console.log('Recording stopped and stored at', uri);
+      debugLog('Recording stopped and stored at', uri);
     } catch (err) {
       console.error('Failed to stop recording', err);
       Alert.alert('Error', 'Failed to stop recording: ' + err.message);
@@ -69,26 +85,48 @@ export default function App() {
       return;
     }
 
+    // Prevent multiple simultaneous playback
+    if (isPlaying) {
+      debugLog('Sound already playing, ignoring playback request');
+      return;
+    }
+
     try {
-      console.log('Loading Sound');
+      // If a sound is already loaded, unload it before creating a new one
+      if (sound) {
+        debugLog('Unloading previous sound before loading new one');
+        await sound.unloadAsync();
+        setSound(null);
+      }
+
+      setIsPlaying(true);
+      debugLog('Loading Sound');
       const { sound: audioSound } = await Audio.Sound.createAsync(
         { uri: recordingUri },
         { shouldPlay: true }
       );
       setSound(audioSound);
 
-      console.log('Playing Sound');
+      // Set up playback status listener to track when playback finishes
+      audioSound.setOnPlaybackStatusUpdate((status) => {
+        if (status.didJustFinish) {
+          setIsPlaying(false);
+        }
+      });
+
+      debugLog('Playing Sound');
       await audioSound.playAsync();
     } catch (err) {
       console.error('Failed to play sound', err);
       Alert.alert('Error', 'Failed to play sound: ' + err.message);
+      setIsPlaying(false);
     }
   }
 
   React.useEffect(() => {
     return sound
       ? () => {
-          console.log('Unloading Sound');
+          debugLog('Unloading Sound');
           sound.unloadAsync().catch((err) => {
             console.error('Failed to unload sound', err);
           });
@@ -117,11 +155,13 @@ export default function App() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.button, styles.playbackButton, !recordingUri && styles.disabledButton]}
+          style={[styles.button, styles.playbackButton, (!recordingUri || isPlaying) && styles.disabledButton]}
           onPress={playSound}
-          disabled={!recordingUri}
+          disabled={!recordingUri || isPlaying}
         >
-          <Text style={styles.buttonText}>Playback</Text>
+          <Text style={styles.buttonText}>
+            {isPlaying ? 'Playing...' : 'Playback'}
+          </Text>
         </TouchableOpacity>
       </View>
 
