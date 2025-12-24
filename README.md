@@ -4,13 +4,12 @@ An audio recording application built with React Native and Expo for cross-platfo
 
 ## Project Structure
 
-The React Native application is located in the `followalong` folder.
+This is a React Native app with audio recording and playback features.
 
-- `followalong/` - React Native app with audio recording and playback features
-  - `App.js` - Main application component with audio recorder UI
-  - `app.json` - Expo configuration
-  - `assets/` - Images and static resources
-  - `package.json` - Project dependencies and scripts
+- `App.js` - Main application component with audio recorder UI
+- `app.json` - Expo configuration
+- `assets/` - Images and static resources
+- `package.json` - Project dependencies and scripts
 
 ## Prerequisites
 
@@ -20,19 +19,12 @@ The React Native application is located in the `followalong` folder.
 
 ## Setup
 
-1. Navigate to the followalong directory:
-```bash
-cd followalong
-```
-
-2. Install dependencies:
+Install dependencies:
 ```bash
 npm install
 ```
 
 ## Running the App
-
-The following commands assume you are running them from the `followalong` directory (see Setup step 1).
 
 ### Start the development server:
 ```bash
@@ -60,7 +52,7 @@ npm run web
 
 ### Using Expo Go (Easiest for testing):
 1. Install Expo Go app on your iOS or Android device
-2. Run `npm start` from the followalong directory
+2. Run `npm start`
 3. Scan the QR code with your device's camera (iOS) or the Expo Go app (Android)
 
 ## Features
