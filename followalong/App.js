@@ -25,10 +25,10 @@ export default function App() {
       });
 
       console.log('Starting recording..');
-      const { recording } = await Audio.Recording.createAsync(
+      const { recording: newRecording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
-      setRecording(recording);
+      setRecording(newRecording);
       setIsRecording(true);
       console.log('Recording started');
     } catch (err) {
