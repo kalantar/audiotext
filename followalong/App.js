@@ -89,7 +89,9 @@ export default function App() {
     return sound
       ? () => {
           console.log('Unloading Sound');
-          sound.unloadAsync();
+          sound.unloadAsync().catch((err) => {
+            console.error('Failed to unload sound', err);
+          });
         }
       : undefined;
   }, [sound]);
