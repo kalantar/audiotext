@@ -1,0 +1,13 @@
+{
+  "name": "audiotext-server",
+  "version": "1.0.0",
+  "description": "Speech recognition server using Vosk",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "vosk": "^0.3.38",
+    "ws": "^8.18.3"
+  }
+}
