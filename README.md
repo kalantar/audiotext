@@ -32,7 +32,7 @@ npm install
 
 ## Running the App
 
-All commands should be run from the `followalong` directory.
+The following commands assume you are running them from the `followalong` directory (see Setup step 1).
 
 ### Start the development server:
 ```bash
