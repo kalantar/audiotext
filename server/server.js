@@ -2,9 +2,10 @@
 const vosk = require('vosk');
 const WebSocket = require('ws');
 const fs = require('fs');
+const path = require('path');
 
 vosk.setLogLevel(0);
-const MODEL_PATH = '../vosk-model-small-en-us-0.15';
+const MODEL_PATH = path.join(__dirname, '..', 'vosk-model-small-en-us-0.15');
 const SAMPLE_RATE = 16000;
 
 let model;

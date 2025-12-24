@@ -22,6 +22,9 @@ const getLastWords = (text, wordCount) => {
   return words.slice(-wordCount).join(' ');
 };
 
+// WebSocket server configuration
+const WS_SERVER_URL = 'ws://localhost:2700';
+
 export default function App() {
   const [recording, setRecording] = useState(null);
   const [sound, setSound] = useState(null);
@@ -35,7 +38,7 @@ export default function App() {
   const connectWebSocket = () => {
     return new Promise((resolve, reject) => {
       try {
-        const ws = new WebSocket('ws://localhost:2700');
+        const ws = new WebSocket(WS_SERVER_URL);
         
         ws.onopen = () => {
           debugLog('WebSocket connected');
@@ -151,15 +154,6 @@ export default function App() {
         recordingOptions
       );
       
-      // Set up audio streaming to WebSocket
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        newRecording.setOnRecordingStatusUpdate((status) => {
-          // Note: Direct audio streaming in React Native requires additional setup
-          // For now, we'll send the complete audio after recording stops
-          // Real-time streaming would require native modules or different approach
-        });
-      }
-      
       setRecording(newRecording);
       setIsRecording(true);
       debugLog('Recording started');
@@ -193,19 +187,19 @@ export default function App() {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         try {
           // Read the audio file and send to WebSocket
-          // Note: For React Native, we need to use fetch to read the file
           const response = await fetch(uri);
           const blob = await response.blob();
-          const arrayBuffer = await blob.arrayBuffer();
           
-          // Send audio data in chunks
+          // Send audio data in chunks to avoid loading entire file in memory
           const chunkSize = 8000; // 8KB chunks
-          const uint8Array = new Uint8Array(arrayBuffer);
+          const reader = blob.stream().getReader();
           
-          for (let i = 0; i < uint8Array.length; i += chunkSize) {
-            const chunk = uint8Array.slice(i, Math.min(i + chunkSize, uint8Array.length));
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-              wsRef.current.send(chunk);
+              wsRef.current.send(value);
             }
           }
           
@@ -218,7 +212,7 @@ export default function App() {
       // Close WebSocket connection after a delay to allow final transcription
       setTimeout(() => {
         closeWebSocket();
-      }, 1000);
+      }, 2000);
     } catch (err) {
       console.error('Failed to stop recording', err);
       Alert.alert('Error', 'Failed to stop recording: ' + err.message);
