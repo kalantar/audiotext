@@ -230,9 +230,13 @@ export default function App() {
       }
       
       // Close WebSocket connection after a delay proportional to audio length
-      // Estimate: 1 second of processing per 10 seconds of audio, minimum 2 seconds
-      const audioLengthEstimate = pcmData ? pcmData.length / (16000 * 2) : 0; // bytes / (sample_rate * bytes_per_sample)
-      const timeoutMs = Math.max(2000, audioLengthEstimate * 100 + 1000);
+      // Estimate processing time based on audio duration
+      const BYTES_PER_SAMPLE = 2; // 16-bit PCM
+      const BASE_TIMEOUT_MS = 2000; // Minimum timeout
+      const PROCESSING_TIME_PER_SECOND = 100; // Additional ms per second of audio
+      
+      const audioLengthEstimate = pcmData ? pcmData.length / (16000 * BYTES_PER_SAMPLE) : 0; // Duration in seconds
+      const timeoutMs = Math.max(BASE_TIMEOUT_MS, audioLengthEstimate * PROCESSING_TIME_PER_SECOND + BASE_TIMEOUT_MS);
       setTimeout(() => {
         closeWebSocket();
       }, timeoutMs);
