@@ -13,7 +13,7 @@ This is a React Native app with audio recording and playback features.
 
 ## Prerequisites
 
-- Node.js (v20 or higher)
+- Node.js (v18 recommended for Vosk compatibility; v20+ may have issues with native modules)
 - npm or yarn
 - Expo Go app on your mobile device (optional for testing)
 
@@ -24,7 +24,28 @@ Install dependencies:
 npm install
 ```
 
+Install server dependencies (for speech-to-text):
+```bash
+cd server
+npm install
+cd ..
+```
+
+**Note**: The Vosk package may require Node.js v18 or earlier due to native module compilation. If you encounter errors, try using Node.js v18:
+```bash
+nvm install 18
+nvm use 18
+cd server && npm install && cd ..
+```
+
 ## Running the App
+
+### Start the speech-to-text server (required for transcription):
+```bash
+cd server
+npm start
+```
+Keep this running in a separate terminal.
 
 ### Start the development server:
 ```bash
@@ -59,6 +80,7 @@ npm run web
 
 The FollowAlong app includes:
 - **Start/Stop Recording**: Record audio using your device's microphone
+- **Speech-to-Text Transcription**: Transcribe recorded audio to text after recording stops (displays last 50 words)
 - **Playback**: Play back recorded audio
 - **Cross-platform**: Works on Web, iOS, and Android
 

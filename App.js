@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, TouchableOpacity, Alert } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView } from 'react-native';
 import { Audio } from 'expo-av';
 
 // Development-only logging helper
@@ -13,12 +13,90 @@ const debugLog = (...args) => {
   }
 };
 
+// Helper function to get last N words from text
+const getLastWords = (text, wordCount) => {
+  const words = text.trim().split(/\s+/).filter(word => word.length > 0);
+  if (words.length <= wordCount) {
+    return text;
+  }
+  return words.slice(-wordCount).join(' ');
+};
+
+// WebSocket server configuration
+const WS_SERVER_URL = 'ws://localhost:2700';
+
 export default function App() {
   const [recording, setRecording] = useState(null);
   const [sound, setSound] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [recordingUri, setRecordingUri] = useState(null);
+  const [transcription, setTranscription] = useState('');
+  const wsRef = useRef(null);
+
+  // Initialize WebSocket connection
+  const connectWebSocket = () => {
+    return new Promise((resolve, reject) => {
+      try {
+        const ws = new WebSocket(WS_SERVER_URL);
+        
+        ws.onopen = () => {
+          debugLog('WebSocket connected');
+          wsRef.current = ws;
+          resolve(ws);
+        };
+        
+        ws.onerror = (error) => {
+          debugLog('WebSocket error:', error);
+          wsRef.current = null;
+          reject(error);
+        };
+        
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.partial) {
+              // Update with partial transcription
+              setTranscription(prev => {
+                const newText = prev && prev.trim().length > 0
+                  ? prev + ' ' + data.partial
+                  : data.partial;
+                return getLastWords(newText, 50);
+              });
+            } else if (data.final) {
+              // Update with final transcription
+              setTranscription(prev => {
+                const newText = prev && prev.trim().length > 0
+                  ? prev + ' ' + data.final
+                  : data.final;
+                return getLastWords(newText, 50);
+              });
+            }
+          } catch (err) {
+            debugLog('Error parsing transcription:', err);
+          }
+        };
+        
+        ws.onclose = () => {
+          debugLog('WebSocket closed');
+          wsRef.current = null;
+        };
+      } catch (err) {
+        reject(err);
+      }
+    });
+  };
+
+  // Close WebSocket connection
+  const closeWebSocket = () => {
+    if (wsRef.current) {
+      const ws = wsRef.current;
+      if (ws.readyState !== WebSocket.CLOSING && ws.readyState !== WebSocket.CLOSED) {
+        ws.close();
+      }
+      wsRef.current = null;
+    }
+  };
 
   async function startRecording() {
     // Prevent starting a new recording if one is already in progress
@@ -36,21 +114,63 @@ export default function App() {
         return;
       }
 
+      // Connect to WebSocket server for transcription
+      try {
+        await connectWebSocket();
+      } catch (err) {
+        console.error('Failed to connect to transcription server', err);
+        Alert.alert('Warning', 'Could not connect to transcription server. Recording will work but transcription will not be available.');
+      }
+
+      // Clear previous transcription
+      setTranscription('');
+
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
       });
 
       debugLog('Starting recording..');
+      
+      // Configure recording for 16kHz sample rate (required by Vosk)
+      const recordingOptions = {
+        android: {
+          extension: '.wav',
+          outputFormat: Audio.AndroidOutputFormat.DEFAULT,
+          audioEncoder: Audio.AndroidAudioEncoder.DEFAULT,
+          sampleRate: 16000,
+          numberOfChannels: 1,
+          bitRate: 128000,
+        },
+        ios: {
+          extension: '.wav',
+          audioQuality: Audio.IOSAudioQuality.HIGH,
+          sampleRate: 16000,
+          numberOfChannels: 1,
+          bitRate: 128000,
+          linearPCMBitDepth: 16,
+          linearPCMIsBigEndian: false,
+          linearPCMIsFloat: false,
+        },
+        web: {
+          mimeType: 'audio/wav',
+          sampleRate: 16000,
+          numberOfChannels: 1,
+          bitsPerSecond: 128000,
+        },
+      };
+
       const { recording: newRecording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
+        recordingOptions
       );
+      
       setRecording(newRecording);
       setIsRecording(true);
       debugLog('Recording started');
     } catch (err) {
       console.error('Failed to start recording', err);
       Alert.alert('Error', 'Failed to start recording: ' + err.message);
+      closeWebSocket();
     }
   }
 
@@ -72,9 +192,58 @@ export default function App() {
       const uri = currentRecording.getURI();
       setRecordingUri(uri);
       debugLog('Recording stopped and stored at', uri);
+
+      // Send recorded audio to WebSocket for transcription
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        try {
+          // Read the audio file and send to WebSocket
+          const response = await fetch(uri);
+          const arrayBuffer = await response.arrayBuffer();
+          const audioBytes = new Uint8Array(arrayBuffer);
+
+          // Standard WAV header size is 44 bytes; skip these to get raw PCM data
+          const WAV_HEADER_SIZE = 44;
+          const pcmData =
+            audioBytes.length > WAV_HEADER_SIZE
+              ? audioBytes.subarray(WAV_HEADER_SIZE)
+              : audioBytes;
+
+          // Send audio data in chunks with backpressure handling
+          const chunkSize = 8000; // 8KB chunks
+          for (let offset = 0; offset < pcmData.length; offset += chunkSize) {
+            const chunk = pcmData.subarray(offset, offset + chunkSize);
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+              wsRef.current.send(chunk);
+              // Small delay to prevent overwhelming the WebSocket connection
+              if (offset + chunkSize < pcmData.length) {
+                await new Promise(resolve => setTimeout(resolve, 10));
+              }
+            } else {
+              break;
+            }
+          }
+          
+          debugLog('Audio sent to transcription server');
+        } catch (err) {
+          console.error('Failed to send audio to transcription server', err);
+        }
+      }
+      
+      // Close WebSocket connection after a delay proportional to audio length
+      // Estimate processing time based on audio duration
+      const BYTES_PER_SAMPLE = 2; // 16-bit PCM
+      const BASE_TIMEOUT_MS = 2000; // Minimum timeout
+      const PROCESSING_TIME_PER_SECOND = 100; // Additional ms per second of audio
+      
+      const audioLengthEstimate = pcmData ? pcmData.length / (16000 * BYTES_PER_SAMPLE) : 0; // Duration in seconds
+      const timeoutMs = Math.max(BASE_TIMEOUT_MS, audioLengthEstimate * PROCESSING_TIME_PER_SECOND + BASE_TIMEOUT_MS);
+      setTimeout(() => {
+        closeWebSocket();
+      }, timeoutMs);
     } catch (err) {
       console.error('Failed to stop recording', err);
       Alert.alert('Error', 'Failed to stop recording: ' + err.message);
+      closeWebSocket();
     } finally {
       setRecording(null);
     }
@@ -138,6 +307,13 @@ export default function App() {
       : undefined;
   }, [sound]);
 
+  // Cleanup WebSocket on unmount
+  React.useEffect(() => {
+    return () => {
+      closeWebSocket();
+    };
+  }, []);
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>FollowAlong Audio Recorder</Text>
@@ -147,6 +323,15 @@ export default function App() {
           {isRecording ? '🔴 Recording...' : recordingUri ? '✓ Recording ready' : '⚪ Ready to record'}
         </Text>
       </View>
+
+      {transcription ? (
+        <View style={styles.transcriptionContainer}>
+          <Text style={styles.transcriptionLabel}>Transcription (last 50 words):</Text>
+          <ScrollView style={styles.transcriptionScrollView}>
+            <Text style={styles.transcriptionText}>{transcription}</Text>
+          </ScrollView>
+        </View>
+      ) : null}
 
       <View style={styles.buttonsContainer}>
         <TouchableOpacity
@@ -239,5 +424,33 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: '600',
+  },
+  transcriptionContainer: {
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 20,
+    width: '100%',
+    maxWidth: 500,
+    maxHeight: 200,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  transcriptionLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 8,
+  },
+  transcriptionScrollView: {
+    maxHeight: 150,
+  },
+  transcriptionText: {
+    fontSize: 16,
+    color: '#333',
+    lineHeight: 24,
   },
 });
