@@ -22,6 +22,7 @@ try {
 }
 
 const wss = new WebSocket.Server({ port: WS_PORT });
+console.log(`WebSocket server is listening on port ${WS_PORT} and ready to accept connections.`);
 
 wss.on('error', (err) => {
   console.error('WebSocket server failed:', err && err.message ? err.message : err);
@@ -43,6 +44,14 @@ function sendIfOpen(socket, data) {
 
 wss.on('connection', function connection(ws) {
   const rec = new vosk.Recognizer({model: model, sampleRate: SAMPLE_RATE});
+  let recognizerFreed = false;
+  
+  const freeRecognizer = () => {
+    if (!recognizerFreed) {
+      rec.free();
+      recognizerFreed = true;
+    }
+  };
   
   ws.on('message', function incoming(message) {
     // Validate incoming message
@@ -80,6 +89,6 @@ wss.on('connection', function connection(ws) {
     }
   });
   
-  ws.on('close', () => rec.free());
-  ws.on('error', () => rec.free());
+  ws.on('close', freeRecognizer);
+  ws.on('error', freeRecognizer);
 });

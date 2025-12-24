@@ -90,7 +90,10 @@ export default function App() {
   // Close WebSocket connection
   const closeWebSocket = () => {
     if (wsRef.current) {
-      wsRef.current.close();
+      const ws = wsRef.current;
+      if (ws.readyState !== WebSocket.CLOSING && ws.readyState !== WebSocket.CLOSED) {
+        ws.close();
+      }
       wsRef.current = null;
     }
   };
@@ -205,12 +208,16 @@ export default function App() {
               ? audioBytes.subarray(WAV_HEADER_SIZE)
               : audioBytes;
 
-          // Send audio data in chunks
+          // Send audio data in chunks with backpressure handling
           const chunkSize = 8000; // 8KB chunks
           for (let offset = 0; offset < pcmData.length; offset += chunkSize) {
             const chunk = pcmData.subarray(offset, offset + chunkSize);
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
               wsRef.current.send(chunk);
+              // Small delay to prevent overwhelming the WebSocket connection
+              if (offset + chunkSize < pcmData.length) {
+                await new Promise(resolve => setTimeout(resolve, 10));
+              }
             } else {
               break;
             }
@@ -222,10 +229,13 @@ export default function App() {
         }
       }
       
-      // Close WebSocket connection after a delay to allow final transcription
+      // Close WebSocket connection after a delay proportional to audio length
+      // Estimate: 1 second of processing per 10 seconds of audio, minimum 2 seconds
+      const audioLengthEstimate = pcmData ? pcmData.length / (16000 * 2) : 0; // bytes / (sample_rate * bytes_per_sample)
+      const timeoutMs = Math.max(2000, audioLengthEstimate * 100 + 1000);
       setTimeout(() => {
         closeWebSocket();
-      }, 2000);
+      }, timeoutMs);
     } catch (err) {
       console.error('Failed to stop recording', err);
       Alert.alert('Error', 'Failed to stop recording: ' + err.message);

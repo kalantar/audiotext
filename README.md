@@ -13,7 +13,7 @@ This is a React Native app with audio recording and playback features.
 
 ## Prerequisites
 
-- Node.js (v20 or higher)
+- Node.js (v18 recommended for Vosk compatibility; v20+ may have issues with native modules)
 - npm or yarn
 - Expo Go app on your mobile device (optional for testing)
 
