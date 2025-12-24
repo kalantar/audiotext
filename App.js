@@ -42,11 +42,13 @@ export default function App() {
         
         ws.onopen = () => {
           debugLog('WebSocket connected');
+          wsRef.current = ws;
           resolve(ws);
         };
         
         ws.onerror = (error) => {
           debugLog('WebSocket error:', error);
+          wsRef.current = null;
           reject(error);
         };
         
@@ -56,13 +58,17 @@ export default function App() {
             if (data.partial) {
               // Update with partial transcription
               setTranscription(prev => {
-                const newText = prev + ' ' + data.partial;
+                const newText = prev && prev.trim().length > 0
+                  ? prev + ' ' + data.partial
+                  : data.partial;
                 return getLastWords(newText, 50);
               });
             } else if (data.final) {
               // Update with final transcription
               setTranscription(prev => {
-                const newText = prev + ' ' + data.final;
+                const newText = prev && prev.trim().length > 0
+                  ? prev + ' ' + data.final
+                  : data.final;
                 return getLastWords(newText, 50);
               });
             }
@@ -73,9 +79,8 @@ export default function App() {
         
         ws.onclose = () => {
           debugLog('WebSocket closed');
+          wsRef.current = null;
         };
-        
-        wsRef.current = ws;
       } catch (err) {
         reject(err);
       }
@@ -146,6 +151,8 @@ export default function App() {
         },
         web: {
           mimeType: 'audio/wav',
+          sampleRate: 16000,
+          numberOfChannels: 1,
           bitsPerSecond: 128000,
         },
       };
@@ -188,18 +195,27 @@ export default function App() {
         try {
           // Read the audio file and send to WebSocket
           const response = await fetch(uri);
-          const blob = await response.blob();
-          
-          // Send audio data in chunks to avoid loading entire file in memory
+          const arrayBuffer = await response.arrayBuffer();
+          const audioBytes = new Uint8Array(arrayBuffer);
+
+          // Standard WAV header size is 44 bytes; skip these to get raw PCM data
+          const WAV_HEADER_SIZE = 44;
+          const pcmData =
+            audioBytes.length > WAV_HEADER_SIZE
+              ? audioBytes.subarray(WAV_HEADER_SIZE)
+              : audioBytes;
+
+          // Send audio data in chunks
           const chunkSize = 8000; // 8KB chunks
-          const reader = blob.stream().getReader();
-          
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            
+          for (let offset = 0; offset < pcmData.length; offset += chunkSize) {
+            const chunk = pcmData.subarray(offset, offset + chunkSize);
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-              wsRef.current.send(value);
+              // Ensure we send the underlying ArrayBuffer slice
+              wsRef.current.send(
+                chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength)
+              );
+            } else {
+              break;
             }
           }
           

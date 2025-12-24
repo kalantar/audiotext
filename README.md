@@ -80,7 +80,7 @@ npm run web
 
 The FollowAlong app includes:
 - **Start/Stop Recording**: Record audio using your device's microphone
-- **Real-time Speech-to-Text**: Transcribe audio to text as you speak (displays last 50 words)
+- **Speech-to-Text Transcription**: Transcribe recorded audio to text after recording stops (displays last 50 words)
 - **Playback**: Play back recorded audio
 - **Cross-platform**: Works on Web, iOS, and Android
 
