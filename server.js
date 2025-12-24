@@ -50,11 +50,7 @@ wss.on('connection', function connection(ws) {
       }
     } catch (err) {
       console.error('Error processing audio data:', err);
-      try {
-        ws.send(JSON.stringify({ error: 'Invalid audio data' }));
-      } catch (sendErr) {
-        console.error('Error sending error message to client:', sendErr);
-      }
+      sendSafe(ws, JSON.stringify({ error: 'Invalid audio data' }));
       ws.close();
     }
   });
