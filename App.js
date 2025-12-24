@@ -210,10 +210,7 @@ export default function App() {
           for (let offset = 0; offset < pcmData.length; offset += chunkSize) {
             const chunk = pcmData.subarray(offset, offset + chunkSize);
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-              // Ensure we send the underlying ArrayBuffer slice
-              wsRef.current.send(
-                chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength)
-              );
+              wsRef.current.send(chunk);
             } else {
               break;
             }
