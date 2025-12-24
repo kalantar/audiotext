@@ -1,6 +1,16 @@
 # audiotext
 
-An audio-to-text application built with React Native and Expo for cross-platform mobile development.
+An audio recording application built with React Native and Expo for cross-platform mobile development.
+
+## Project Structure
+
+The React Native application is located in the `followalong` folder.
+
+- `followalong/` - React Native app with audio recording and playback features
+  - `App.js` - Main application component with audio recorder UI
+  - `app.json` - Expo configuration
+  - `assets/` - Images and static resources
+  - `package.json` - Project dependencies and scripts
 
 ## Prerequisites
 
@@ -10,12 +20,19 @@ An audio-to-text application built with React Native and Expo for cross-platform
 
 ## Setup
 
-1. Install dependencies:
+1. Navigate to the followalong directory:
+```bash
+cd followalong
+```
+
+2. Install dependencies:
 ```bash
 npm install
 ```
 
 ## Running the App
+
+All commands should be run from the `followalong` directory.
 
 ### Start the development server:
 ```bash
@@ -43,15 +60,15 @@ npm run web
 
 ### Using Expo Go (Easiest for testing):
 1. Install Expo Go app on your iOS or Android device
-2. Run `npm start`
+2. Run `npm start` from the followalong directory
 3. Scan the QR code with your device's camera (iOS) or the Expo Go app (Android)
 
-## Project Structure
+## Features
 
-- `App.js` - Main application component
-- `app.json` - Expo configuration
-- `assets/` - Images and static resources
-- `package.json` - Project dependencies and scripts
+The FollowAlong app includes:
+- **Start/Stop Recording**: Record audio using your device's microphone
+- **Playback**: Play back recorded audio
+- **Cross-platform**: Works on Web, iOS, and Android
 
 ## Development
 
@@ -65,3 +82,4 @@ This project uses Expo's managed workflow, which provides:
 
 - [Expo Documentation](https://docs.expo.dev/)
 - [React Native Documentation](https://reactnative.dev/)
+- [Expo Audio Documentation](https://docs.expo.dev/versions/latest/sdk/av/)
