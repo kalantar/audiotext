@@ -6,7 +6,9 @@ This repository contains a React Native audio recording application built with E
 
 **audiotext** (also known as "FollowAlong") is a mobile application that enables users to:
 - Record audio using their device's microphone
-- Play back recorded audio
+- Recognize speech
+- Use text to look up text in a corpus of texts (available online)
+- Display to the user the recognized speech in context of full source so user can "follow along"
 - Run on Web, iOS, and Android platforms
 
 ## Technology Stack
