@@ -45,18 +45,21 @@ export default function App() {
       return;
     }
 
+    const currentRecording = recording;
+
     try {
-      await recording.stopAndUnloadAsync();
+      await currentRecording.stopAndUnloadAsync();
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
       });
-      const uri = recording.getURI();
+      const uri = currentRecording.getURI();
       setRecordingUri(uri);
-      setRecording(null);
       console.log('Recording stopped and stored at', uri);
     } catch (err) {
       console.error('Failed to stop recording', err);
       Alert.alert('Error', 'Failed to stop recording: ' + err.message);
+    } finally {
+      setRecording(null);
     }
   }
 
