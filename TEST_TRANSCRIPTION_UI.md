@@ -125,6 +125,9 @@ transcriptionText: {
 ### Prerequisites
 1. Vosk server must be running on `ws://localhost:2700`
 2. Vosk model must be available at `vosk-model-small-en-us-0.15`
+   - Download from: https://alphacephei.com/vosk/models
+   - Extract to the root directory of the project
+   - The model directory should contain files like `am/`, `graph/`, `conf/`, etc.
 
 ### Test Steps
 1. Start the Vosk server:
@@ -174,7 +177,7 @@ All requirements from the issue have been implemented:
 
 ## Conclusion
 
-The transcription UI feature requested in issue #11 is **fully implemented** and ready for use. The UI will display speech-to-text results during recording, showing the last 50 words in a scrollable, well-styled container.
+The transcription UI feature for displaying speech-to-text results is **fully implemented** and ready for use. The UI will display transcription text during recording, showing the last 50 words in a scrollable, well-styled container.
 
 The feature will work correctly when:
 1. The Vosk WebSocket server is running
