@@ -98,21 +98,45 @@ export default function App() {
     }
   };
 
-  // Convert audio to PCM format for Vosk (16kHz, 16-bit, mono)
-  // This function is only called on web platforms where window and AudioContext are available
+  // Convert recorded WebM audio to raw PCM format for Vosk (16kHz, 16-bit, mono).
+  //
+  // Processing pipeline:
+  // 1. Fetch the recorded audio file (typically WebM/Opus from Expo on the web) into an ArrayBuffer.
+  // 2. Use the Web Audio API (AudioContext.decodeAudioData) to decode the compressed WebM data
+  //    into an uncompressed AudioBuffer (PCM Float32 samples at the original sample rate / channels).
+  // 3. Create an OfflineAudioContext configured for:
+  //      - 1 channel (mono)
+  //      - target sample rate of 16,000 Hz (Vosk's expected input rate)
+  //      - a length based on the original duration at 16 kHz
+  //    and render the decoded AudioBuffer into this context to resample and downmix to mono.
+  // 4. Extract the resampled mono Float32 channel data and convert each sample to a 16‑bit
+  //    signed integer (Int16) by:
+  //      - clamping the float sample to the range [-1.0, 1.0]
+  //      - scaling negative values by 0x8000 and non‑negative values by 0x7FFF
+  // 5. Return the underlying Int16Array buffer as a Uint8Array so it can be sent over the
+  //    WebSocket connection to the Vosk server as raw 16‑bit PCM audio.
+  //
+  // This function is only called on web platforms where window and AudioContext are available.
   const convertToPCM = async (audioUri) => {
+    let audioContext = null;
+    
     try {
       // Fetch the audio file
       const response = await fetch(audioUri);
       const arrayBuffer = await response.arrayBuffer();
       
-      // Use Web Audio API to decode the audio
-      // Check for browser environment and AudioContext availability
-      if (typeof window === 'undefined' || !window.AudioContext) {
+      // Check for browser environment and AudioContext availability before instantiating
+      if (typeof window === 'undefined') {
         throw new Error('Web Audio API not available');
       }
-      
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextCtor) {
+        throw new Error('Web Audio API not available');
+      }
+
+      // Use Web Audio API to decode the audio
+      audioContext = new AudioContextCtor();
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
       
       // Resample to 16kHz if needed and convert to mono
@@ -143,6 +167,11 @@ export default function App() {
     } catch (err) {
       console.error('Failed to convert audio to PCM', err);
       throw err;
+    } finally {
+      // Close AudioContext to free system resources
+      if (audioContext && audioContext.state !== 'closed') {
+        await audioContext.close();
+      }
     }
   };
 
