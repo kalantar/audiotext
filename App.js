@@ -98,6 +98,48 @@ export default function App() {
     }
   };
 
+  // Convert audio to PCM format for Vosk (16kHz, 16-bit, mono)
+  const convertToPCM = async (audioUri) => {
+    try {
+      // Fetch the audio file
+      const response = await fetch(audioUri);
+      const arrayBuffer = await response.arrayBuffer();
+      
+      // Use Web Audio API to decode the audio
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      
+      // Resample to 16kHz if needed and convert to mono
+      const targetSampleRate = 16000;
+      const offlineContext = new OfflineAudioContext(
+        1, // mono
+        audioBuffer.duration * targetSampleRate,
+        targetSampleRate
+      );
+      
+      const source = offlineContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(offlineContext.destination);
+      source.start();
+      
+      const resampled = await offlineContext.startRendering();
+      
+      // Convert to 16-bit PCM
+      const pcmData = resampled.getChannelData(0);
+      const pcm16 = new Int16Array(pcmData.length);
+      for (let i = 0; i < pcmData.length; i++) {
+        // Clamp to [-1, 1] and convert to 16-bit integer
+        const s = Math.max(-1, Math.min(1, pcmData[i]));
+        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+      
+      return new Uint8Array(pcm16.buffer);
+    } catch (err) {
+      console.error('Failed to convert audio to PCM', err);
+      throw err;
+    }
+  };
+
   async function startRecording() {
     // Prevent starting a new recording if one is already in progress
     if (recording || isRecording) {
@@ -153,9 +195,7 @@ export default function App() {
           linearPCMIsFloat: false,
         },
         web: {
-          mimeType: 'audio/wav',
-          sampleRate: 16000,
-          numberOfChannels: 1,
+          mimeType: 'audio/webm',
           bitsPerSecond: 128000,
         },
       };
@@ -193,20 +233,33 @@ export default function App() {
       setRecordingUri(uri);
       debugLog('Recording stopped and stored at', uri);
 
+      let pcmData = null;
+
       // Send recorded audio to WebSocket for transcription
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         try {
-          // Read the audio file and send to WebSocket
-          const response = await fetch(uri);
-          const arrayBuffer = await response.arrayBuffer();
-          const audioBytes = new Uint8Array(arrayBuffer);
+          // For web platform, we need to convert WebM to PCM
+          // Platform detection: check if we're running in a browser
+          const isWeb = typeof window !== 'undefined' && typeof window.AudioContext !== 'undefined';
+          
+          if (isWeb) {
+            // Convert WebM audio to PCM format (16kHz, 16-bit, mono)
+            debugLog('Converting WebM audio to PCM for web platform');
+            pcmData = await convertToPCM(uri);
+          } else {
+            // For native platforms (iOS/Android), audio is already in WAV format
+            // Read the audio file and extract PCM data
+            const response = await fetch(uri);
+            const arrayBuffer = await response.arrayBuffer();
+            const audioBytes = new Uint8Array(arrayBuffer);
 
-          // Standard WAV header size is 44 bytes; skip these to get raw PCM data
-          const WAV_HEADER_SIZE = 44;
-          const pcmData =
-            audioBytes.length > WAV_HEADER_SIZE
-              ? audioBytes.subarray(WAV_HEADER_SIZE)
-              : audioBytes;
+            // Standard WAV header size is 44 bytes; skip these to get raw PCM data
+            const WAV_HEADER_SIZE = 44;
+            pcmData =
+              audioBytes.length > WAV_HEADER_SIZE
+                ? audioBytes.subarray(WAV_HEADER_SIZE)
+                : audioBytes;
+          }
 
           // Send audio data in chunks with backpressure handling
           const chunkSize = 8000; // 8KB chunks
