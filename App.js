@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView, Platform } from 'react-native';
 import { Audio } from 'expo-av';
 
 // Development-only logging helper
@@ -113,7 +113,7 @@ export default function App() {
       const targetSampleRate = 16000;
       const offlineContext = new OfflineAudioContext(
         1, // mono
-        audioBuffer.duration * targetSampleRate,
+        Math.round(audioBuffer.duration * targetSampleRate),
         targetSampleRate
       );
       
@@ -195,6 +195,9 @@ export default function App() {
           linearPCMIsFloat: false,
         },
         web: {
+          // Web browsers don't support audio/wav container for MediaRecorder
+          // Using audio/webm which is widely supported. The audio will be
+          // converted to PCM (16kHz, mono) on the client side before sending to Vosk
           mimeType: 'audio/webm',
           bitsPerSecond: 128000,
         },
@@ -239,8 +242,8 @@ export default function App() {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         try {
           // For web platform, we need to convert WebM to PCM
-          // Platform detection: check if we're running in a browser
-          const isWeb = typeof window !== 'undefined' && typeof window.AudioContext !== 'undefined';
+          // Use React Native's Platform API for reliable platform detection
+          const isWeb = Platform.OS === 'web';
           
           if (isWeb) {
             // Convert WebM audio to PCM format (16kHz, 16-bit, mono)
