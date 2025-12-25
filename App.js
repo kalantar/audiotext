@@ -153,7 +153,7 @@ export default function App() {
           linearPCMIsFloat: false,
         },
         web: {
-          mimeType: 'audio/wav',
+          mimeType: 'audio/webm;codecs=opus',
           sampleRate: 16000,
           numberOfChannels: 1,
           bitsPerSecond: 128000,
@@ -194,19 +194,76 @@ export default function App() {
       debugLog('Recording stopped and stored at', uri);
 
       // Send recorded audio to WebSocket for transcription
+      let audioLengthEstimate = 0;
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         try {
           // Read the audio file and send to WebSocket
           const response = await fetch(uri);
           const arrayBuffer = await response.arrayBuffer();
-          const audioBytes = new Uint8Array(arrayBuffer);
-
-          // Standard WAV header size is 44 bytes; skip these to get raw PCM data
-          const WAV_HEADER_SIZE = 44;
-          const pcmData =
-            audioBytes.length > WAV_HEADER_SIZE
+          
+          let pcmData;
+          
+          // Check if we're on web platform (WebM format) or native (WAV format)
+          // On web, we need to decode WebM to PCM using Web Audio API
+          // On native platforms, we can skip the WAV header directly
+          if (typeof window !== 'undefined' && window.AudioContext) {
+            // Web platform: decode WebM to PCM
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+            
+            // Resample to 16kHz if needed and convert to mono
+            const targetSampleRate = 16000;
+            const channelData = audioBuffer.getChannelData(0); // Get first channel (mono)
+            
+            // If sample rate doesn't match, we need to resample
+            let resampledData;
+            if (audioBuffer.sampleRate !== targetSampleRate) {
+              // Simple linear interpolation resampling
+              const sampleRateRatio = audioBuffer.sampleRate / targetSampleRate;
+              const newLength = Math.round(channelData.length / sampleRateRatio);
+              resampledData = new Float32Array(newLength);
+              
+              for (let i = 0; i < newLength; i++) {
+                const sourceIndex = i * sampleRateRatio;
+                const sourceIndexFloor = Math.floor(sourceIndex);
+                const sourceIndexCeil = Math.min(Math.ceil(sourceIndex), channelData.length - 1);
+                const fraction = sourceIndex - sourceIndexFloor;
+                
+                // Linear interpolation
+                resampledData[i] = channelData[sourceIndexFloor] * (1 - fraction) + 
+                                   channelData[sourceIndexCeil] * fraction;
+              }
+            } else {
+              resampledData = channelData;
+            }
+            
+            // Convert Float32 samples to Int16 PCM (Vosk expects 16-bit PCM)
+            pcmData = new Int16Array(resampledData.length);
+            for (let i = 0; i < resampledData.length; i++) {
+              // Clamp and scale to 16-bit range
+              const sample = Math.max(-1, Math.min(1, resampledData[i]));
+              pcmData[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+            }
+            
+            // Convert Int16Array to Uint8Array (byte array)
+            pcmData = new Uint8Array(pcmData.buffer);
+            
+            // Store audio duration for timeout calculation
+            audioLengthEstimate = audioBuffer.duration;
+            
+            debugLog(`Decoded WebM audio: ${audioBuffer.duration.toFixed(2)}s, resampled to 16kHz`);
+          } else {
+            // Native platform: skip WAV header
+            const audioBytes = new Uint8Array(arrayBuffer);
+            const WAV_HEADER_SIZE = 44;
+            pcmData = audioBytes.length > WAV_HEADER_SIZE
               ? audioBytes.subarray(WAV_HEADER_SIZE)
               : audioBytes;
+            
+            // Estimate audio length for native platforms
+            const BYTES_PER_SAMPLE = 2; // 16-bit PCM
+            audioLengthEstimate = pcmData.length / (16000 * BYTES_PER_SAMPLE);
+          }
 
           // Send audio data in chunks with backpressure handling
           const chunkSize = 8000; // 8KB chunks
@@ -231,11 +288,9 @@ export default function App() {
       
       // Close WebSocket connection after a delay proportional to audio length
       // Estimate processing time based on audio duration
-      const BYTES_PER_SAMPLE = 2; // 16-bit PCM
       const BASE_TIMEOUT_MS = 2000; // Minimum timeout
       const PROCESSING_TIME_PER_SECOND = 100; // Additional ms per second of audio
       
-      const audioLengthEstimate = pcmData ? pcmData.length / (16000 * BYTES_PER_SAMPLE) : 0; // Duration in seconds
       const timeoutMs = Math.max(BASE_TIMEOUT_MS, audioLengthEstimate * PROCESSING_TIME_PER_SECOND + BASE_TIMEOUT_MS);
       setTimeout(() => {
         closeWebSocket();
