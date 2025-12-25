@@ -255,13 +255,18 @@ export default function App() {
           // Create a single AudioContext for the recording session
           const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
           if (AudioContextCtor) {
-            audioContextRef.current = new AudioContextCtor();
+            try {
+              audioContextRef.current = new AudioContextCtor();
+            } catch (err) {
+              debugLog('Failed to create AudioContext:', err);
+              Alert.alert('Warning', 'Real-time transcription may not be available due to browser limitations.');
+            }
           }
           
           // Access the MediaRecorder from the recording object
           const mediaRecorder = newRecording._mediaRecorder;
           
-          if (mediaRecorder) {
+          if (mediaRecorder && audioContextRef.current) {
             // Set up event handler for audio data chunks
             mediaRecorder.addEventListener('dataavailable', async (event) => {
               if (event.data && event.data.size > 0 && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -271,36 +276,38 @@ export default function App() {
                   const arrayBuffer = await audioBlob.arrayBuffer();
                   
                   // Use Web Audio API to decode and convert to PCM
-                  if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+                  const ctx = audioContextRef.current;
+                  if (ctx && ctx.state !== 'closed' && ctx.state !== 'suspended') {
                     try {
-                      const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
+                      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
                       
                       // Resample to 16kHz mono
                       const targetSampleRate = 16000;
-                      const offlineContext = new OfflineAudioContext(
-                        1,
-                        Math.round(audioBuffer.duration * targetSampleRate),
-                        targetSampleRate
-                      );
+                      const length = Math.round(audioBuffer.duration * targetSampleRate);
                       
-                      const source = offlineContext.createBufferSource();
-                      source.buffer = audioBuffer;
-                      source.connect(offlineContext.destination);
-                      source.start();
-                      
-                      const resampled = await offlineContext.startRendering();
-                      
-                      // Convert to 16-bit PCM
-                      const pcmData = resampled.getChannelData(0);
-                      const pcm16 = new Int16Array(pcmData.length);
-                      for (let i = 0; i < pcmData.length; i++) {
-                        const s = Math.max(-1, Math.min(1, pcmData[i]));
-                        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-                      }
-                      
-                      // Send PCM data to WebSocket
-                      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                        wsRef.current.send(new Uint8Array(pcm16.buffer));
+                      // Validate length before creating OfflineAudioContext
+                      if (length > 0 && isFinite(length)) {
+                        const offlineContext = new OfflineAudioContext(1, length, targetSampleRate);
+                        
+                        const source = offlineContext.createBufferSource();
+                        source.buffer = audioBuffer;
+                        source.connect(offlineContext.destination);
+                        source.start();
+                        
+                        const resampled = await offlineContext.startRendering();
+                        
+                        // Convert to 16-bit PCM
+                        const pcmData = resampled.getChannelData(0);
+                        const pcm16 = new Int16Array(pcmData.length);
+                        for (let i = 0; i < pcmData.length; i++) {
+                          const s = Math.max(-1, Math.min(1, pcmData[i]));
+                          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                        }
+                        
+                        // Send PCM data to WebSocket
+                        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                          wsRef.current.send(new Uint8Array(pcm16.buffer));
+                        }
                       }
                     } catch (err) {
                       debugLog('Error converting audio chunk:', err);
@@ -412,7 +419,6 @@ export default function App() {
       // Close WebSocket connection after a delay to allow final transcription processing
       // For web: use longer timeout since we're waiting for final results from streamed audio
       // For native: timeout based on audio length
-      const isWeb = Platform.OS === 'web';
       const BASE_TIMEOUT_MS = 3000; // Increased base timeout for final transcription
       
       let timeoutMs = BASE_TIMEOUT_MS;
