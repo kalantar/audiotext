@@ -99,6 +99,7 @@ export default function App() {
   };
 
   // Convert audio to PCM format for Vosk (16kHz, 16-bit, mono)
+  // This function is only called on web platforms where window and AudioContext are available
   const convertToPCM = async (audioUri) => {
     try {
       // Fetch the audio file
@@ -106,6 +107,11 @@ export default function App() {
       const arrayBuffer = await response.arrayBuffer();
       
       // Use Web Audio API to decode the audio
+      // Check for browser environment and AudioContext availability
+      if (typeof window === 'undefined' || !window.AudioContext) {
+        throw new Error('Web Audio API not available');
+      }
+      
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
       
