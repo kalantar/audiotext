@@ -216,6 +216,8 @@ export default function App() {
             const channelData = audioBuffer.getChannelData(0); // Get first channel (mono)
             
             // If sample rate doesn't match, we need to resample
+            // Note: Using simple linear interpolation for clarity and performance
+            // For typical short audio recordings, this is sufficient for speech recognition
             let resampledData;
             if (audioBuffer.sampleRate !== targetSampleRate) {
               // Simple linear interpolation resampling
@@ -238,11 +240,13 @@ export default function App() {
             }
             
             // Convert Float32 samples to Int16 PCM (Vosk expects 16-bit PCM)
+            const INT16_MIN = 0x8000; // -32768
+            const INT16_MAX = 0x7FFF; // 32767
             pcmData = new Int16Array(resampledData.length);
             for (let i = 0; i < resampledData.length; i++) {
               // Clamp and scale to 16-bit range
               const sample = Math.max(-1, Math.min(1, resampledData[i]));
-              pcmData[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+              pcmData[i] = sample < 0 ? sample * INT16_MIN : sample * INT16_MAX;
             }
             
             // Convert Int16Array to Uint8Array (byte array)
