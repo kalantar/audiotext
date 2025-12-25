@@ -33,6 +33,8 @@ export default function App() {
   const [recordingUri, setRecordingUri] = useState(null);
   const [transcription, setTranscription] = useState('');
   const wsRef = useRef(null);
+  const finalTranscriptionRef = useRef('');
+  const recordingIntervalRef = useRef(null);
 
   // Initialize WebSocket connection
   const connectWebSocket = () => {
@@ -56,21 +58,20 @@ export default function App() {
           try {
             const data = JSON.parse(event.data);
             if (data.partial) {
-              // Update with partial transcription
-              setTranscription(prev => {
-                const newText = prev && prev.trim().length > 0
-                  ? prev + ' ' + data.partial
-                  : data.partial;
-                return getLastWords(newText, 50);
-              });
-            } else if (data.final) {
-              // Update with final transcription
-              setTranscription(prev => {
-                const newText = prev && prev.trim().length > 0
-                  ? prev + ' ' + data.final
-                  : data.final;
-                return getLastWords(newText, 50);
-              });
+              // Partial results replace the current partial text (not append)
+              // Vosk sends the complete partial transcription so far, not incremental
+              const combined = finalTranscriptionRef.current && finalTranscriptionRef.current.trim().length > 0
+                ? finalTranscriptionRef.current + ' ' + data.partial
+                : data.partial;
+              setTranscription(getLastWords(combined, 50));
+            } else if (data.final && data.final.trim().length > 0) {
+              // Final results are appended to the accumulated final transcription
+              const newFinal = finalTranscriptionRef.current && finalTranscriptionRef.current.trim().length > 0
+                ? finalTranscriptionRef.current + ' ' + data.final
+                : data.final;
+              finalTranscriptionRef.current = newFinal;
+              // Update display with the new final transcription
+              setTranscription(getLastWords(newFinal, 50));
             }
           } catch (err) {
             debugLog('Error parsing transcription:', err);
@@ -201,6 +202,7 @@ export default function App() {
 
       // Clear previous transcription
       setTranscription('');
+      finalTranscriptionRef.current = '';
 
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
@@ -245,6 +247,83 @@ export default function App() {
       setRecording(newRecording);
       setIsRecording(true);
       debugLog('Recording started');
+
+      // For web platform, set up real-time audio streaming
+      if (Platform.OS === 'web' && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        try {
+          // Access the MediaRecorder from the recording object
+          const mediaRecorder = newRecording._mediaRecorder;
+          
+          if (mediaRecorder) {
+            // Set up event handler for audio data chunks
+            mediaRecorder.addEventListener('dataavailable', async (event) => {
+              if (event.data && event.data.size > 0 && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                try {
+                  // Convert WebM chunk to PCM and send to server
+                  const audioBlob = event.data;
+                  const arrayBuffer = await audioBlob.arrayBuffer();
+                  
+                  // Use Web Audio API to decode and convert to PCM
+                  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+                  if (AudioContextCtor) {
+                    const audioContext = new AudioContextCtor();
+                    try {
+                      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                      
+                      // Resample to 16kHz mono
+                      const targetSampleRate = 16000;
+                      const offlineContext = new OfflineAudioContext(
+                        1,
+                        Math.round(audioBuffer.duration * targetSampleRate),
+                        targetSampleRate
+                      );
+                      
+                      const source = offlineContext.createBufferSource();
+                      source.buffer = audioBuffer;
+                      source.connect(offlineContext.destination);
+                      source.start();
+                      
+                      const resampled = await offlineContext.startRendering();
+                      
+                      // Convert to 16-bit PCM
+                      const pcmData = resampled.getChannelData(0);
+                      const pcm16 = new Int16Array(pcmData.length);
+                      for (let i = 0; i < pcmData.length; i++) {
+                        const s = Math.max(-1, Math.min(1, pcmData[i]));
+                        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                      }
+                      
+                      // Send PCM data to WebSocket
+                      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                        wsRef.current.send(new Uint8Array(pcm16.buffer));
+                      }
+                      
+                      await audioContext.close();
+                    } catch (err) {
+                      debugLog('Error converting audio chunk:', err);
+                      await audioContext.close();
+                    }
+                  }
+                } catch (err) {
+                  debugLog('Error processing audio chunk:', err);
+                }
+              }
+            });
+            
+            // Request data every 1 second for real-time transcription
+            if (mediaRecorder.state === 'recording') {
+              mediaRecorder.requestData();
+              recordingIntervalRef.current = setInterval(() => {
+                if (mediaRecorder.state === 'recording') {
+                  mediaRecorder.requestData();
+                }
+              }, 1000);
+            }
+          }
+        } catch (err) {
+          debugLog('Failed to set up real-time streaming:', err);
+        }
+      }
     } catch (err) {
       console.error('Failed to start recording', err);
       Alert.alert('Error', 'Failed to start recording: ' + err.message);
@@ -254,6 +333,12 @@ export default function App() {
 
   async function stopRecording() {
     debugLog('Stopping recording..');
+    
+    // Clear the recording interval if it exists
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+      recordingIntervalRef.current = null;
+    }
     
     if (!recording) {
       return;
@@ -274,30 +359,24 @@ export default function App() {
       let pcmData = null;
 
       // Send recorded audio to WebSocket for transcription
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      // For web: real-time streaming is already happening, so we skip sending the full recording
+      // For native platforms: send the complete recording after stopping
+      const isWeb = Platform.OS === 'web';
+      
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !isWeb) {
         try {
-          // For web platform, we need to convert WebM to PCM
-          // Use React Native's Platform API for reliable platform detection
-          const isWeb = Platform.OS === 'web';
-          
-          if (isWeb) {
-            // Convert WebM audio to PCM format (16kHz, 16-bit, mono)
-            debugLog('Converting WebM audio to PCM for web platform');
-            pcmData = await convertToPCM(uri);
-          } else {
-            // For native platforms (iOS/Android), audio is already in WAV format
-            // Read the audio file and extract PCM data
-            const response = await fetch(uri);
-            const arrayBuffer = await response.arrayBuffer();
-            const audioBytes = new Uint8Array(arrayBuffer);
+          // For native platforms (iOS/Android), audio is already in WAV format
+          // Read the audio file and extract PCM data
+          const response = await fetch(uri);
+          const arrayBuffer = await response.arrayBuffer();
+          const audioBytes = new Uint8Array(arrayBuffer);
 
-            // Standard WAV header size is 44 bytes; skip these to get raw PCM data
-            const WAV_HEADER_SIZE = 44;
-            pcmData =
-              audioBytes.length > WAV_HEADER_SIZE
-                ? audioBytes.subarray(WAV_HEADER_SIZE)
-                : audioBytes;
-          }
+          // Standard WAV header size is 44 bytes; skip these to get raw PCM data
+          const WAV_HEADER_SIZE = 44;
+          pcmData =
+            audioBytes.length > WAV_HEADER_SIZE
+              ? audioBytes.subarray(WAV_HEADER_SIZE)
+              : audioBytes;
 
           // Send audio data in chunks with backpressure handling
           const chunkSize = 8000; // 8KB chunks
