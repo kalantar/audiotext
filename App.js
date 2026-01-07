@@ -13,7 +13,10 @@ const debugLog = (...args) => {
   }
 };
 
-// Helper function to get last N words from text
+// Helper function to limit displayed transcription to last N words
+// This prevents the UI from being overwhelmed with very long transcriptions
+// Called by WebSocket message handler (lines 73, 85) before updating UI
+// Used in transcription display to show only last 50 words (configurable)
 const getLastWords = (text, wordCount) => {
   const words = text.trim().split(/\s+/).filter(word => word.length > 0);
   if (words.length <= wordCount) {
@@ -26,16 +29,22 @@ const getLastWords = (text, wordCount) => {
 const WS_SERVER_URL = 'ws://localhost:2700';
 
 export default function App() {
+  // Audio recording and playback state
   const [recording, setRecording] = useState(null);
   const [sound, setSound] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [recordingUri, setRecordingUri] = useState(null);
+  
+  // Transcription state - holds the text displayed in UI (lines 540-547)
+  // Updated by WebSocket message handler (lines 58-87) when Vosk sends results
   const [transcription, setTranscription] = useState('');
-  const wsRef = useRef(null);
-  const finalTranscriptionRef = useRef('');
-  const recordingIntervalRef = useRef(null);
-  const audioContextRef = useRef(null);
+  
+  // WebSocket and transcription refs
+  const wsRef = useRef(null); // WebSocket connection to Vosk server
+  const finalTranscriptionRef = useRef(''); // Accumulates finalized transcription text
+  const recordingIntervalRef = useRef(null); // Timer for real-time audio streaming (web)
+  const audioContextRef = useRef(null); // Web Audio API context for audio processing
 
   // Initialize WebSocket connection
   const connectWebSocket = () => {
@@ -55,23 +64,33 @@ export default function App() {
           reject(error);
         };
         
+        // WebSocket message handler - receives transcription results from Vosk server
+        // This is the KEY component that populates the transcription UI (lines 540-547)
+        // Messages are sent from server/server.js when audio is processed
         ws.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
+            
+            // Handle partial results (interim transcription while user is speaking)
+            // These update in real-time on web, providing live feedback
             if (data.partial) {
               // Partial results replace the current partial text (not append)
               // Vosk sends the complete partial transcription so far, not incremental
               const combined = finalTranscriptionRef.current && finalTranscriptionRef.current.trim().length > 0
                 ? finalTranscriptionRef.current + ' ' + data.partial
                 : data.partial;
+              // Update the UI with last 50 words - this triggers re-render of transcription component
               setTranscription(getLastWords(combined, 50));
-            } else if (data.final && data.final.trim().length > 0) {
+            } 
+            // Handle final results (completed phrase when user pauses)
+            // These are more accurate and permanent
+            else if (data.final && data.final.trim().length > 0) {
               // Final results are appended to the accumulated final transcription
               const newFinal = finalTranscriptionRef.current && finalTranscriptionRef.current.trim().length > 0
                 ? finalTranscriptionRef.current + ' ' + data.final
                 : data.final;
               finalTranscriptionRef.current = newFinal;
-              // Update display with the new final transcription
+              // Update display with the new final transcription - UI updates here
               setTranscription(getLastWords(newFinal, 50));
             }
           } catch (err) {
@@ -537,6 +556,12 @@ export default function App() {
         </TouchableOpacity>
       </View>
 
+      {/* Transcription Display Container
+          - Shows real-time speech-to-text transcription during/after recording
+          - Updated via WebSocket messages from Vosk server (lines 58-80)
+          - Displays last 50 words (limited by getLastWords helper)
+          - Shows placeholder text when transcription state is empty
+          - Scrollable for overflow content */}
       <View style={styles.transcriptionContainer}>
         <Text style={styles.transcriptionLabel}>Transcription (last 50 words):</Text>
         <ScrollView style={styles.transcriptionScrollView}>
