@@ -18,7 +18,7 @@ User sees ← UI Update ← State Update ← WebSocket ← Transcription Results
 
 ### 1. Transcription UI Component
 
-**Location:** `App.js`, lines 540-547
+**Location:** `App.js`, lines 559-572
 
 ```javascript
 <View style={styles.transcriptionContainer}>
@@ -35,16 +35,16 @@ User sees ← UI Update ← State Update ← WebSocket ← Transcription Results
 - Always renders on screen (even before recording)
 - Shows placeholder text when `transcription` state is empty
 - Shows actual transcription text once available
-- Scrollable container with max height of 150px (line 642)
+- Scrollable container with max height of 150px (line 665)
 
-**Styling:** `App.js`, lines 620-651
+**Styling:** `App.js`, lines 645-676
 - Container: Max width 500px, max height 200px
 - ScrollView: Max height 150px
 - Text: 16px font, 24px line height
 
 ### 2. Transcription State Management
 
-**Location:** `App.js`, line 34
+**Location:** `App.js`, line 41
 
 ```javascript
 const [transcription, setTranscription] = useState('');
@@ -53,11 +53,11 @@ const [transcription, setTranscription] = useState('');
 This React state holds the current transcription text that is displayed in the UI. When this state updates, the UI automatically re-renders with the new text.
 
 **Related state:**
-- `finalTranscriptionRef` (line 36): Accumulates final transcription results across multiple phrases
+- `finalTranscriptionRef` (line 45): Accumulates final transcription results across multiple phrases
 
 ### 3. Helper Function: Word Limiting
 
-**Location:** `App.js`, lines 17-23
+**Location:** `App.js`, lines 20-26
 
 ```javascript
 const getLastWords = (text, wordCount) => {
@@ -82,7 +82,7 @@ const getLastWords = (text, wordCount) => {
 
 ### 4. WebSocket Connection for Transcription
 
-**Location:** `App.js`, lines 41-90
+**Location:** `App.js`, lines 49-107
 
 #### Connection Setup (lines 41-50)
 
@@ -101,14 +101,14 @@ const connectWebSocket = () => {
 };
 ```
 
-**When called:** During `startRecording()` (line 198)
+**When called:** During `startRecording()` (line 217)
 
 **What it does:**
 - Connects to Vosk server at `ws://localhost:2700`
 - Stores connection in `wsRef.current`
 - Returns promise that resolves when connected
 
-#### Message Handling (lines 58-80)
+#### Message Handling (lines 70-98)
 
 ```javascript
 ws.onmessage = (event) => {
@@ -156,54 +156,54 @@ ws.onmessage = (event) => {
 
 ### 5. Audio Recording and Transmission
 
-#### Starting Recording (lines 180-339)
+#### Starting Recording (lines 199-358)
 
 **Key steps:**
 
-1. **Request permissions** (line 189):
+1. **Request permissions** (line 208):
    ```javascript
    const permission = await Audio.requestPermissionsAsync();
    ```
 
-2. **Connect to transcription server** (line 198):
+2. **Connect to transcription server** (line 217):
    ```javascript
    await connectWebSocket();
    ```
 
-3. **Clear previous transcription** (lines 205-206):
+3. **Clear previous transcription** (lines 224-225):
    ```javascript
    setTranscription('');
    finalTranscriptionRef.current = '';
    ```
 
-4. **Configure audio recording** (lines 216-242):
+4. **Configure audio recording** (lines 235-261):
    - Android/iOS: 16kHz WAV, mono, 16-bit PCM
    - Web: WebM format (converted to PCM before sending)
 
-5. **Start recording** (lines 244-250):
+5. **Start recording** (lines 263-269):
    ```javascript
    const { recording: newRecording } = await Audio.Recording.createAsync(recordingOptions);
    setRecording(newRecording);
    setIsRecording(true);
    ```
 
-#### Real-time Audio Streaming (Web Only, lines 253-333)
+#### Real-time Audio Streaming (Web Only, lines 272-352)
 
 **Platform:** Web browsers only (not iOS/Android)
 
 **How it works:**
 
-1. **Setup AudioContext** (lines 256-264):
+1. **Setup AudioContext** (lines 275-283):
    ```javascript
    audioContextRef.current = new AudioContextCtor();
    ```
 
-2. **Access MediaRecorder** (line 267):
+2. **Access MediaRecorder** (line 286):
    ```javascript
    const mediaRecorder = newRecording._mediaRecorder;
    ```
 
-3. **Handle audio chunks** (lines 271-320):
+3. **Handle audio chunks** (lines 290-339):
    - MediaRecorder fires `dataavailable` events with audio chunks
    - Each chunk is WebM format audio
    - Convert chunk to ArrayBuffer
@@ -212,7 +212,7 @@ ws.onmessage = (event) => {
    - Convert to 16-bit PCM
    - Send PCM data to WebSocket
 
-4. **Request data periodically** (lines 323-328):
+4. **Request data periodically** (lines 342-347):
    ```javascript
    mediaRecorder.requestData(); // Immediate request
    recordingIntervalRef.current = setInterval(() => {
@@ -224,34 +224,34 @@ ws.onmessage = (event) => {
 
 **Result:** On web, transcription appears in real-time as you speak (updated every ~1 second)
 
-#### Stopping Recording (lines 341-442)
+#### Stopping Recording (lines 360-461)
 
 **Key steps:**
 
-1. **Cleanup timers** (lines 344-348):
+1. **Cleanup timers** (lines 363-367):
    ```javascript
    clearInterval(recordingIntervalRef.current);
    ```
 
-2. **Stop recording** (line 368):
+2. **Stop recording** (line 387):
    ```javascript
    await currentRecording.stopAndUnloadAsync();
    ```
 
-3. **Send audio for transcription (mobile only)** (lines 383-417):
+3. **Send audio for transcription (mobile only)** (lines 402-436):
    - Read recorded WAV file
    - Skip 44-byte WAV header to get PCM data
    - Send PCM data in 8KB chunks
    - Small delay between chunks to prevent overwhelming WebSocket
 
-4. **Close WebSocket after delay** (lines 432-434):
+4. **Close WebSocket after delay** (lines 451-453):
    - Allows server time to process final audio
    - Base timeout: 3 seconds
    - Additional time based on audio length
 
 ### 6. Audio Format Conversion (Web)
 
-**Location:** `App.js`, lines 122-178
+**Location:** `App.js`, lines 141-197
 
 **Function:** `convertToPCM(audioUri)`
 
@@ -424,21 +424,21 @@ If transcription doesn't appear in the UI, check:
 
 | Feature | File | Lines | Description |
 |---------|------|-------|-------------|
-| UI Component | App.js | 540-547 | Transcription display container |
-| State | App.js | 34, 36 | transcription state and finalTranscriptionRef |
-| Word Limiting | App.js | 17-23 | getLastWords() helper function |
-| WebSocket Setup | App.js | 41-90 | Connection and message handling |
-| Message Handler | App.js | 58-80 | Processes partial/final results |
-| Start Recording | App.js | 180-339 | Permission, connection, recording |
-| Real-time Streaming | App.js | 253-333 | Web-only audio streaming |
-| Stop Recording | App.js | 341-442 | Cleanup and send audio (mobile) |
-| PCM Conversion | App.js | 122-178 | WebM to PCM conversion |
+| UI Component | App.js | 559-572 | Transcription display container |
+| State | App.js | 41, 45 | transcription state and finalTranscriptionRef |
+| Word Limiting | App.js | 20-26 | getLastWords() helper function |
+| WebSocket Setup | App.js | 49-107 | Connection and message handling |
+| Message Handler | App.js | 70-98 | Processes partial/final results |
+| Start Recording | App.js | 199-358 | Permission, connection, recording |
+| Real-time Streaming | App.js | 272-352 | Web-only audio streaming |
+| Stop Recording | App.js | 360-461 | Cleanup and send audio (mobile) |
+| PCM Conversion | App.js | 141-197 | WebM to PCM conversion |
 | Server | server/server.js | entire | Vosk WebSocket server |
-| Styling | App.js | 620-651 | Transcription UI styles |
+| Styling | App.js | 645-676 | Transcription UI styles |
 
 ## Summary
 
-The transcription feature is **fully implemented** and displays text in the UI control (lines 540-547) as audio is recorded. The transcription:
+The transcription feature is **fully implemented** and displays text in the UI control (lines 559-572) as audio is recorded. The transcription:
 
 - ✅ Appears in real-time on web (every ~1 second)
 - ✅ Appears after recording on mobile (iOS/Android)
