@@ -80,9 +80,30 @@ npm run web
 
 The FollowAlong app includes:
 - **Start/Stop Recording**: Record audio using your device's microphone
-- **Speech-to-Text Transcription**: Transcribe recorded audio to text after recording stops (displays last 50 words)
+- **Real-time Speech-to-Text Transcription**: 
+  - Transcribes audio to text during recording (web) or after recording stops (mobile)
+  - Displays the last 50 words in a scrollable text area
+  - Updates in real-time on web platforms (~1 second intervals)
+  - Uses Vosk speech recognition via WebSocket connection
 - **Playback**: Play back recorded audio
 - **Cross-platform**: Works on Web, iOS, and Android
+
+### How Transcription Works
+
+The transcription feature uses the following flow:
+
+1. **WebSocket Server**: A Vosk-based server (`server/server.js`) listens on port 2700
+2. **Audio Capture**: The app records audio and sends it to the server as PCM data
+3. **Speech Recognition**: Vosk processes the audio and sends back transcription results
+4. **UI Update**: The app displays transcription in the UI component (App.js lines 540-553)
+
+**Key Implementation Details:**
+- **UI Component**: Lines 540-553 in `App.js` - displays transcription text
+- **WebSocket Handler**: Lines 58-87 in `App.js` - receives and processes transcription results
+- **State Management**: Line 34 in `App.js` - `transcription` state holds the displayed text
+- **Word Limiting**: Lines 16-23 in `App.js` - `getLastWords()` helper limits to 50 words
+
+For detailed implementation documentation, see [TRANSCRIPTION_IMPLEMENTATION.md](TRANSCRIPTION_IMPLEMENTATION.md).
 
 ## Development
 
