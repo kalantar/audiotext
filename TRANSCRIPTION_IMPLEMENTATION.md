@@ -18,7 +18,7 @@ User sees ← UI Update ← State Update ← WebSocket ← Transcription Results
 
 ### 1. Transcription UI Component
 
-**Location:** `App.js`, lines 559-572
+**Location:** `App.js`, lines 565-572 (with explanatory comments on lines 559-564)
 
 ```javascript
 <View style={styles.transcriptionContainer}>
@@ -424,7 +424,7 @@ If transcription doesn't appear in the UI, check:
 
 | Feature | File | Lines | Description |
 |---------|------|-------|-------------|
-| UI Component | App.js | 559-572 | Transcription display container |
+| UI Component | App.js | 565-572 | Transcription display container |
 | State | App.js | 41, 45 | transcription state and finalTranscriptionRef |
 | Word Limiting | App.js | 20-26 | getLastWords() helper function |
 | WebSocket Setup | App.js | 49-107 | Connection and message handling |
@@ -438,7 +438,7 @@ If transcription doesn't appear in the UI, check:
 
 ## Summary
 
-The transcription feature is **fully implemented** and displays text in the UI control (lines 559-572) as audio is recorded. The transcription:
+The transcription feature is **fully implemented** and displays text in the UI control (lines 565-572) as audio is recorded. The transcription:
 
 - ✅ Appears in real-time on web (every ~1 second)
 - ✅ Appears after recording on mobile (iOS/Android)

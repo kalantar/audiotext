@@ -36,8 +36,8 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [recordingUri, setRecordingUri] = useState(null);
   
-  // Transcription state - holds the text displayed in UI (lines 540-547)
-  // Updated by WebSocket message handler (lines 58-87) when Vosk sends results
+  // Transcription state - holds the text displayed in UI (lines 565-572)
+  // Updated by WebSocket message handler (lines 70-98) when Vosk sends results
   const [transcription, setTranscription] = useState('');
   
   // WebSocket and transcription refs
@@ -65,7 +65,7 @@ export default function App() {
         };
         
         // WebSocket message handler - receives transcription results from Vosk server
-        // This is the KEY component that populates the transcription UI (lines 540-547)
+        // This is the KEY component that populates the transcription UI (lines 565-572)
         // Messages are sent from server/server.js when audio is processed
         ws.onmessage = (event) => {
           try {
@@ -558,7 +558,7 @@ export default function App() {
 
       {/* Transcription Display Container
           - Shows real-time speech-to-text transcription during/after recording
-          - Updated via WebSocket messages from Vosk server (lines 58-80)
+          - Updated via WebSocket messages from Vosk server (lines 70-98)
           - Displays last 50 words (limited by getLastWords helper)
           - Shows placeholder text when transcription state is empty
           - Scrollable for overflow content */}
