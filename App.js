@@ -516,14 +516,14 @@ export default function App() {
         </Text>
       </View>
 
-      {transcription ? (
-        <View style={styles.transcriptionContainer}>
-          <Text style={styles.transcriptionLabel}>Transcription (last 50 words):</Text>
-          <ScrollView style={styles.transcriptionScrollView}>
-            <Text style={styles.transcriptionText}>{transcription}</Text>
-          </ScrollView>
-        </View>
-      ) : null}
+      <View style={styles.transcriptionContainer}>
+        <Text style={styles.transcriptionLabel}>Transcription (last 50 words):</Text>
+        <ScrollView style={styles.transcriptionScrollView}>
+          <Text style={[styles.transcriptionText, !transcription && styles.placeholderText]}>
+            {transcription || 'Transcription will appear here when you start recording...'}
+          </Text>
+        </ScrollView>
+      </View>
 
       <View style={styles.buttonsContainer}>
         <TouchableOpacity
@@ -644,5 +644,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
     lineHeight: 24,
+  },
+  placeholderText: {
+    fontStyle: 'italic',
+    color: '#999',
   },
 });
