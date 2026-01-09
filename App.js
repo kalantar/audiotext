@@ -44,7 +44,7 @@ export default function App() {
   const wsRef = useRef(null); // WebSocket connection to Vosk server
   const finalTranscriptionRef = useRef(''); // Accumulates finalized transcription text
   const recordingIntervalRef = useRef(null); // Timer for real-time audio streaming (web)
-  const audioContextRef = useRef(null); // Web Audio API context for audio processing
+  const audioContextRef = useRef(null); // Stores MediaRecorder and stream for web real-time transcription
 
   // Initialize WebSocket connection
   const connectWebSocket = () => {
@@ -268,69 +268,37 @@ export default function App() {
       setIsRecording(true);
       debugLog('Recording started');
 
-      // For web platform, set up real-time audio streaming
+      // For web platform, set up real-time audio streaming using MediaRecorder API
+      // Note: We use the MediaRecorder API directly instead of accessing internal fields
       if (Platform.OS === 'web' && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         try {
-          // Create a single AudioContext for the recording session
-          const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-          if (AudioContextCtor) {
-            try {
-              audioContextRef.current = new AudioContextCtor();
-            } catch (err) {
-              debugLog('Failed to create AudioContext:', err);
-              Alert.alert('Warning', 'Real-time transcription may not be available due to browser limitations.');
-            }
-          }
-          
-          // Access the MediaRecorder from the recording object
-          const mediaRecorder = newRecording._mediaRecorder;
-          
-          if (mediaRecorder && audioContextRef.current) {
+          // Create MediaRecorder directly from getUserMedia stream for real-time transcription
+          if (typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream, {
+              mimeType: 'audio/webm',
+              audioBitsPerSecond: 128000
+            });
+            
+            // Store stream reference for cleanup
+            audioContextRef.current = { stream, mediaRecorder };
+            
             // Set up event handler for audio data chunks
             mediaRecorder.addEventListener('dataavailable', async (event) => {
               if (event.data && event.data.size > 0 && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                 try {
-                  // Convert WebM chunk to PCM and send to server
-                  const audioBlob = event.data;
-                  const arrayBuffer = await audioBlob.arrayBuffer();
+                  // Create blob URL for the audio chunk
+                  const blobUrl = URL.createObjectURL(event.data);
                   
-                  // Use Web Audio API to decode and convert to PCM
-                  const ctx = audioContextRef.current;
-                  if (ctx && ctx.state !== 'closed' && ctx.state !== 'suspended') {
-                    try {
-                      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-                      
-                      // Resample to 16kHz mono
-                      const targetSampleRate = 16000;
-                      const length = Math.round(audioBuffer.duration * targetSampleRate);
-                      
-                      // Validate length before creating OfflineAudioContext
-                      if (length > 0 && isFinite(length)) {
-                        const offlineContext = new OfflineAudioContext(1, length, targetSampleRate);
-                        
-                        const source = offlineContext.createBufferSource();
-                        source.buffer = audioBuffer;
-                        source.connect(offlineContext.destination);
-                        source.start();
-                        
-                        const resampled = await offlineContext.startRendering();
-                        
-                        // Convert to 16-bit PCM
-                        const pcmData = resampled.getChannelData(0);
-                        const pcm16 = new Int16Array(pcmData.length);
-                        for (let i = 0; i < pcmData.length; i++) {
-                          const s = Math.max(-1, Math.min(1, pcmData[i]));
-                          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-                        }
-                        
-                        // Send PCM data to WebSocket
-                        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                          wsRef.current.send(new Uint8Array(pcm16.buffer));
-                        }
-                      }
-                    } catch (err) {
-                      debugLog('Error converting audio chunk:', err);
-                    }
+                  // Use convertToPCM utility function to process the audio
+                  const pcmData = await convertToPCM(blobUrl);
+                  
+                  // Clean up blob URL
+                  URL.revokeObjectURL(blobUrl);
+                  
+                  // Send PCM data to WebSocket
+                  if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                    wsRef.current.send(pcmData);
                   }
                 } catch (err) {
                   debugLog('Error processing audio chunk:', err);
@@ -338,7 +306,8 @@ export default function App() {
               }
             });
             
-            // Request data immediately and then every 1 second for real-time transcription
+            // Start recording and request data immediately, then every 1 second
+            mediaRecorder.start();
             mediaRecorder.requestData();
             recordingIntervalRef.current = setInterval(() => {
               if (mediaRecorder.state === 'recording') {
@@ -366,12 +335,17 @@ export default function App() {
       recordingIntervalRef.current = null;
     }
     
-    // Clean up AudioContext if it exists
-    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+    // Clean up MediaRecorder and stream if they exist (web platform)
+    if (audioContextRef.current) {
       try {
-        await audioContextRef.current.close();
+        if (audioContextRef.current.mediaRecorder && audioContextRef.current.mediaRecorder.state !== 'inactive') {
+          audioContextRef.current.mediaRecorder.stop();
+        }
+        if (audioContextRef.current.stream) {
+          audioContextRef.current.stream.getTracks().forEach(track => track.stop());
+        }
       } catch (err) {
-        debugLog('Error closing AudioContext:', err);
+        debugLog('Error cleaning up MediaRecorder/stream:', err);
       }
       audioContextRef.current = null;
     }

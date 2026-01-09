@@ -187,33 +187,40 @@ ws.onmessage = (event) => {
    setIsRecording(true);
    ```
 
-#### Real-time Audio Streaming (Web Only, lines 272-352)
+#### Real-time Audio Streaming (Web Only, lines 271-319)
 
 **Platform:** Web browsers only (not iOS/Android)
 
 **How it works:**
 
-1. **Setup AudioContext** (lines 275-283):
+1. **Create MediaRecorder directly** (lines 276-283):
+   - Uses `navigator.mediaDevices.getUserMedia()` to access microphone
+   - Creates MediaRecorder instance directly (not from Expo's internal field)
+   - This approach is browser-agnostic and works across Firefox, Chrome, etc.
    ```javascript
-   audioContextRef.current = new AudioContextCtor();
+   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+   const mediaRecorder = new MediaRecorder(stream, {
+     mimeType: 'audio/webm',
+     audioBitsPerSecond: 128000
+   });
    ```
 
-2. **Access MediaRecorder** (line 286):
+2. **Store references for cleanup** (line 286):
    ```javascript
-   const mediaRecorder = newRecording._mediaRecorder;
+   audioContextRef.current = { stream, mediaRecorder };
    ```
 
-3. **Handle audio chunks** (lines 290-339):
+3. **Handle audio chunks** (lines 289-303):
    - MediaRecorder fires `dataavailable` events with audio chunks
    - Each chunk is WebM format audio
-   - Convert chunk to ArrayBuffer
-   - Decode WebM using Web Audio API
-   - Resample to 16kHz mono
-   - Convert to 16-bit PCM
+   - Create blob URL for the chunk
+   - Use `convertToPCM()` utility function to convert to PCM format
+   - Clean up blob URL after processing
    - Send PCM data to WebSocket
 
-4. **Request data periodically** (lines 342-347):
+4. **Request data periodically** (lines 306-312):
    ```javascript
+   mediaRecorder.start();
    mediaRecorder.requestData(); // Immediate request
    recordingIntervalRef.current = setInterval(() => {
      if (mediaRecorder.state === 'recording') {
@@ -224,27 +231,39 @@ ws.onmessage = (event) => {
 
 **Result:** On web, transcription appears in real-time as you speak (updated every ~1 second)
 
-#### Stopping Recording (lines 360-461)
+**Key improvements:**
+- Uses MediaRecorder API directly instead of accessing private `_mediaRecorder` field
+- Reuses `convertToPCM()` utility function instead of duplicating conversion logic
+- More reliable across different browsers (Firefox, Chrome, Safari, etc.)
+
+#### Stopping Recording (lines 329-435)
 
 **Key steps:**
 
-1. **Cleanup timers** (lines 363-367):
+1. **Cleanup timers and MediaRecorder** (lines 332-349):
    ```javascript
    clearInterval(recordingIntervalRef.current);
+   // Clean up MediaRecorder and stream (web platform)
+   if (audioContextRef.current.mediaRecorder) {
+     audioContextRef.current.mediaRecorder.stop();
+   }
+   if (audioContextRef.current.stream) {
+     audioContextRef.current.stream.getTracks().forEach(track => track.stop());
+   }
    ```
 
-2. **Stop recording** (line 387):
+2. **Stop recording** (line 361):
    ```javascript
    await currentRecording.stopAndUnloadAsync();
    ```
 
-3. **Send audio for transcription (mobile only)** (lines 402-436):
+3. **Send audio for transcription (mobile only)** (lines 376-410):
    - Read recorded WAV file
    - Skip 44-byte WAV header to get PCM data
    - Send PCM data in 8KB chunks
    - Small delay between chunks to prevent overwhelming WebSocket
 
-4. **Close WebSocket after delay** (lines 451-453):
+4. **Close WebSocket after delay** (lines 425-427):
    - Allows server time to process final audio
    - Base timeout: 3 seconds
    - Additional time based on audio length
@@ -413,7 +432,8 @@ If transcription doesn't appear in the UI, check:
 2. **Transcription appears only after recording stops (on web):**
    - Real-time streaming might not be working
    - Check MediaRecorder support in browser
-   - Verify AudioContext is created successfully
+   - Verify getUserMedia permissions are granted
+   - Check browser console for errors in MediaRecorder setup
 
 3. **Server connection fails:**
    - Check if port 2700 is available
@@ -429,10 +449,10 @@ If transcription doesn't appear in the UI, check:
 | Word Limiting | App.js | 20-26 | getLastWords() helper function |
 | WebSocket Setup | App.js | 49-107 | Connection and message handling |
 | Message Handler | App.js | 70-98 | Processes partial/final results |
-| Start Recording | App.js | 199-358 | Permission, connection, recording |
-| Real-time Streaming | App.js | 272-352 | Web-only audio streaming |
-| Stop Recording | App.js | 360-461 | Cleanup and send audio (mobile) |
-| PCM Conversion | App.js | 141-197 | WebM to PCM conversion |
+| Start Recording | App.js | 199-327 | Permission, connection, recording |
+| Real-time Streaming | App.js | 271-319 | Web-only audio streaming via MediaRecorder API |
+| Stop Recording | App.js | 329-435 | Cleanup and send audio (mobile) |
+| PCM Conversion | App.js | 141-197 | WebM to PCM conversion utility |
 | Server | server/server.js | entire | Vosk WebSocket server |
 | Styling | App.js | 645-676 | Transcription UI styles |
 
