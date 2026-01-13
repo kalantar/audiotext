@@ -254,17 +254,17 @@ export default function App() {
 
       // For web platform, set up real-time audio streaming
       // DEBUG: Log conditions for real-time streaming setup
-      console.log('[DEBUG] Platform.OS:', Platform.OS);
-      console.log('[DEBUG] wsRef.current:', wsRef.current ? 'exists' : 'null');
-      console.log('[DEBUG] WebSocket readyState:', wsRef.current?.readyState, '(OPEN=' + WebSocket.OPEN + ', CONNECTING=' + WebSocket.CONNECTING + ')');
+      debugLog('[DEBUG] Platform.OS:', Platform.OS);
+      debugLog('[DEBUG] wsRef.current:', wsRef.current ? 'exists' : 'null');
+      debugLog('[DEBUG] WebSocket readyState:', wsRef.current?.readyState, '(OPEN=' + WebSocket.OPEN + ', CONNECTING=' + WebSocket.CONNECTING + ')');
 
       if (Platform.OS === 'web' && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        console.log('[DEBUG] Entered web real-time streaming setup block');
+        debugLog('[DEBUG] Entered web real-time streaming setup block');
         try {
           // Get audio stream from microphone
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
           webMediaStreamRef.current = stream;
-          console.log('[DEBUG] Got media stream from getUserMedia');
+          debugLog('[DEBUG] Got media stream from getUserMedia');
 
           // Create AudioContext at the browser's native sample rate
           const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
@@ -274,7 +274,7 @@ export default function App() {
 
           audioContextRef.current = new AudioContextCtor();
           const ctx = audioContextRef.current;
-          console.log('[DEBUG] AudioContext created, sampleRate:', ctx.sampleRate, 'state:', ctx.state);
+          debugLog('[DEBUG] AudioContext created, sampleRate:', ctx.sampleRate, 'state:', ctx.state);
 
           // Create source from microphone stream
           const source = ctx.createMediaStreamSource(stream);
@@ -350,16 +350,16 @@ export default function App() {
                 }
 
                 wsRef.current.send(new Uint8Array(pcm16.buffer));
-                console.log('[DEBUG] PCM sent (worklet), samples:', pcm16.length, 'bytes:', pcm16.buffer.byteLength);
+                debugLog('[DEBUG] PCM sent (worklet), samples:', pcm16.length, 'bytes:', pcm16.buffer.byteLength);
               };
 
               // Connect: microphone -> worklet (no destination = no audio output/feedback)
               source.connect(workletNode);
 
               useWorklet = true;
-              console.log('[DEBUG] Real-time streaming setup COMPLETE (AudioWorklet method)');
+              debugLog('[DEBUG] Real-time streaming setup COMPLETE (AudioWorklet method)');
             } catch (workletErr) {
-              console.log('[DEBUG] AudioWorklet failed, falling back to ScriptProcessor:', workletErr.message);
+              debugLog('[DEBUG] AudioWorklet failed, falling back to ScriptProcessor:', workletErr.message);
             }
           }
 
@@ -399,7 +399,7 @@ export default function App() {
 
                 if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                   wsRef.current.send(new Uint8Array(pcm16.buffer));
-                  console.log('[DEBUG] PCM sent (fallback), samples:', pcm16.length, 'bytes:', pcm16.buffer.byteLength);
+                  debugLog('[DEBUG] PCM sent (fallback), samples:', pcm16.length, 'bytes:', pcm16.buffer.byteLength);
                 }
                 accumulatedSamples = [];
               }
@@ -407,15 +407,15 @@ export default function App() {
 
             source.connect(scriptProcessor);
             scriptProcessor.connect(ctx.destination);
-            console.log('[DEBUG] Real-time streaming setup COMPLETE (ScriptProcessor fallback)');
+            debugLog('[DEBUG] Real-time streaming setup COMPLETE (ScriptProcessor fallback)');
           }
         } catch (err) {
-          console.log('[DEBUG] ERROR in streaming setup:', err.message || err);
+          debugLog('[DEBUG] ERROR in streaming setup:', err.message || err);
           debugLog('Failed to set up real-time streaming:', err);
           Alert.alert('Warning', 'Real-time transcription may not be available: ' + err.message);
         }
       } else {
-        console.log('[DEBUG] SKIPPED streaming block - conditions not met');
+        debugLog('[DEBUG] SKIPPED streaming block - conditions not met');
       }
     } catch (err) {
       console.error('Failed to start recording', err);
