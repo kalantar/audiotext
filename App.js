@@ -34,6 +34,9 @@ export default function App() {
   const [transcription, setTranscription] = useState('');
   const wsRef = useRef(null);
   const finalTranscriptionRef = useRef('');
+  const webMediaStreamRef = useRef(null);
+  const workletNodeRef = useRef(null);
+  const sourceNodeRef = useRef(null);
   const recordingIntervalRef = useRef(null);
   const audioContextRef = useRef(null);
 
@@ -250,86 +253,169 @@ export default function App() {
       debugLog('Recording started');
 
       // For web platform, set up real-time audio streaming
+      // DEBUG: Log conditions for real-time streaming setup
+      console.log('[DEBUG] Platform.OS:', Platform.OS);
+      console.log('[DEBUG] wsRef.current:', wsRef.current ? 'exists' : 'null');
+      console.log('[DEBUG] WebSocket readyState:', wsRef.current?.readyState, '(OPEN=' + WebSocket.OPEN + ', CONNECTING=' + WebSocket.CONNECTING + ')');
+
       if (Platform.OS === 'web' && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        console.log('[DEBUG] Entered web real-time streaming setup block');
         try {
-          // Create a single AudioContext for the recording session
+          // Get audio stream from microphone
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          webMediaStreamRef.current = stream;
+          console.log('[DEBUG] Got media stream from getUserMedia');
+
+          // Create AudioContext at the browser's native sample rate
           const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-          if (AudioContextCtor) {
+          if (!AudioContextCtor) {
+            throw new Error('Web Audio API not available');
+          }
+
+          audioContextRef.current = new AudioContextCtor();
+          const ctx = audioContextRef.current;
+          console.log('[DEBUG] AudioContext created, sampleRate:', ctx.sampleRate, 'state:', ctx.state);
+
+          // Create source from microphone stream
+          const source = ctx.createMediaStreamSource(stream);
+          sourceNodeRef.current = source;
+
+          // Try AudioWorkletNode first (modern, future-proof), fall back to ScriptProcessorNode
+          const targetSampleRate = 16000;
+          const sourceSampleRate = ctx.sampleRate;
+          let useWorklet = false;
+
+          if (ctx.audioWorklet) {
             try {
-              audioContextRef.current = new AudioContextCtor();
-            } catch (err) {
-              debugLog('Failed to create AudioContext:', err);
-              Alert.alert('Warning', 'Real-time transcription may not be available due to browser limitations.');
+              // Define the AudioWorklet processor inline using a Blob URL
+              const workletCode = `
+                class PCMProcessor extends AudioWorkletProcessor {
+                  constructor() {
+                    super();
+                    this.samples = [];
+                    this.targetSampleRate = 16000;
+                    this.samplesPerChunk = this.targetSampleRate; // ~1 second
+                  }
+
+                  process(inputs, outputs, parameters) {
+                    const input = inputs[0];
+                    if (input && input[0]) {
+                      const inputData = input[0];
+                      const resampleRatio = this.targetSampleRate / sampleRate;
+                      const resampledLength = Math.floor(inputData.length * resampleRatio);
+
+                      // Resample using linear interpolation
+                      for (let i = 0; i < resampledLength; i++) {
+                        const srcIndex = i / resampleRatio;
+                        const srcIndexFloor = Math.floor(srcIndex);
+                        const srcIndexCeil = Math.min(srcIndexFloor + 1, inputData.length - 1);
+                        const t = srcIndex - srcIndexFloor;
+                        const sample = inputData[srcIndexFloor] * (1 - t) + inputData[srcIndexCeil] * t;
+                        this.samples.push(sample);
+                      }
+
+                      // Send when we have enough samples
+                      if (this.samples.length >= this.samplesPerChunk) {
+                        this.port.postMessage({ samples: new Float32Array(this.samples) });
+                        this.samples = [];
+                      }
+                    }
+                    return true; // Keep processor alive
+                  }
+                }
+                registerProcessor('pcm-processor', PCMProcessor);
+              `;
+
+              const blob = new Blob([workletCode], { type: 'application/javascript' });
+              const workletUrl = URL.createObjectURL(blob);
+
+              await ctx.audioWorklet.addModule(workletUrl);
+              URL.revokeObjectURL(workletUrl);
+
+              const workletNode = new AudioWorkletNode(ctx, 'pcm-processor');
+              workletNodeRef.current = workletNode;
+
+              // Handle messages from the worklet (PCM data ready to send)
+              workletNode.port.onmessage = (event) => {
+                if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+                  return;
+                }
+
+                const samples = event.data.samples;
+                // Convert float32 to int16 PCM
+                const pcm16 = new Int16Array(samples.length);
+                for (let i = 0; i < samples.length; i++) {
+                  const s = Math.max(-1, Math.min(1, samples[i]));
+                  pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                }
+
+                wsRef.current.send(new Uint8Array(pcm16.buffer));
+                console.log('[DEBUG] PCM sent (worklet), samples:', pcm16.length, 'bytes:', pcm16.buffer.byteLength);
+              };
+
+              // Connect: microphone -> worklet (no destination = no audio output/feedback)
+              source.connect(workletNode);
+
+              useWorklet = true;
+              console.log('[DEBUG] Real-time streaming setup COMPLETE (AudioWorklet method)');
+            } catch (workletErr) {
+              console.log('[DEBUG] AudioWorklet failed, falling back to ScriptProcessor:', workletErr.message);
             }
           }
-          
-          // Access the MediaRecorder from the recording object
-          const mediaRecorder = newRecording._mediaRecorder;
-          
-          if (mediaRecorder && audioContextRef.current) {
-            // Set up event handler for audio data chunks
-            mediaRecorder.addEventListener('dataavailable', async (event) => {
-              if (event.data && event.data.size > 0 && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                try {
-                  // Convert WebM chunk to PCM and send to server
-                  const audioBlob = event.data;
-                  const arrayBuffer = await audioBlob.arrayBuffer();
-                  
-                  // Use Web Audio API to decode and convert to PCM
-                  const ctx = audioContextRef.current;
-                  if (ctx && ctx.state !== 'closed' && ctx.state !== 'suspended') {
-                    try {
-                      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-                      
-                      // Resample to 16kHz mono
-                      const targetSampleRate = 16000;
-                      const length = Math.round(audioBuffer.duration * targetSampleRate);
-                      
-                      // Validate length before creating OfflineAudioContext
-                      if (length > 0 && isFinite(length)) {
-                        const offlineContext = new OfflineAudioContext(1, length, targetSampleRate);
-                        
-                        const source = offlineContext.createBufferSource();
-                        source.buffer = audioBuffer;
-                        source.connect(offlineContext.destination);
-                        source.start();
-                        
-                        const resampled = await offlineContext.startRendering();
-                        
-                        // Convert to 16-bit PCM
-                        const pcmData = resampled.getChannelData(0);
-                        const pcm16 = new Int16Array(pcmData.length);
-                        for (let i = 0; i < pcmData.length; i++) {
-                          const s = Math.max(-1, Math.min(1, pcmData[i]));
-                          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-                        }
-                        
-                        // Send PCM data to WebSocket
-                        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                          wsRef.current.send(new Uint8Array(pcm16.buffer));
-                        }
-                      }
-                    } catch (err) {
-                      debugLog('Error converting audio chunk:', err);
-                    }
-                  }
-                } catch (err) {
-                  debugLog('Error processing audio chunk:', err);
+
+          // Fallback to ScriptProcessorNode if AudioWorklet not available or failed
+          if (!useWorklet) {
+            const bufferSize = 4096;
+            const scriptProcessor = ctx.createScriptProcessor(bufferSize, 1, 1);
+            workletNodeRef.current = scriptProcessor; // Reuse ref for cleanup
+
+            const resampleRatio = targetSampleRate / sourceSampleRate;
+            let accumulatedSamples = [];
+            const samplesPerSecond = targetSampleRate;
+
+            scriptProcessor.onaudioprocess = (event) => {
+              if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+                return;
+              }
+
+              const inputData = event.inputBuffer.getChannelData(0);
+              const resampledLength = Math.floor(inputData.length * resampleRatio);
+
+              for (let i = 0; i < resampledLength; i++) {
+                const srcIndex = i / resampleRatio;
+                const srcIndexFloor = Math.floor(srcIndex);
+                const srcIndexCeil = Math.min(srcIndexFloor + 1, inputData.length - 1);
+                const t = srcIndex - srcIndexFloor;
+                const sample = inputData[srcIndexFloor] * (1 - t) + inputData[srcIndexCeil] * t;
+                accumulatedSamples.push(sample);
+              }
+
+              if (accumulatedSamples.length >= samplesPerSecond) {
+                const pcm16 = new Int16Array(accumulatedSamples.length);
+                for (let i = 0; i < accumulatedSamples.length; i++) {
+                  const s = Math.max(-1, Math.min(1, accumulatedSamples[i]));
+                  pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
                 }
+
+                if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                  wsRef.current.send(new Uint8Array(pcm16.buffer));
+                  console.log('[DEBUG] PCM sent (fallback), samples:', pcm16.length, 'bytes:', pcm16.buffer.byteLength);
+                }
+                accumulatedSamples = [];
               }
-            });
-            
-            // Request data immediately and then every 1 second for real-time transcription
-            mediaRecorder.requestData();
-            recordingIntervalRef.current = setInterval(() => {
-              if (mediaRecorder.state === 'recording') {
-                mediaRecorder.requestData();
-              }
-            }, 1000);
+            };
+
+            source.connect(scriptProcessor);
+            scriptProcessor.connect(ctx.destination);
+            console.log('[DEBUG] Real-time streaming setup COMPLETE (ScriptProcessor fallback)');
           }
         } catch (err) {
+          console.log('[DEBUG] ERROR in streaming setup:', err.message || err);
           debugLog('Failed to set up real-time streaming:', err);
+          Alert.alert('Warning', 'Real-time transcription may not be available: ' + err.message);
         }
+      } else {
+        console.log('[DEBUG] SKIPPED streaming block - conditions not met');
       }
     } catch (err) {
       console.error('Failed to start recording', err);
@@ -340,13 +426,47 @@ export default function App() {
 
   async function stopRecording() {
     debugLog('Stopping recording..');
-    
-    // Clear the recording interval if it exists
+
+    // Clear the recording interval if it exists (used for native platforms)
     if (recordingIntervalRef.current) {
       clearInterval(recordingIntervalRef.current);
       recordingIntervalRef.current = null;
     }
-    
+
+    // Disconnect and clean up AudioWorklet or ScriptProcessor
+    if (workletNodeRef.current) {
+      try {
+        workletNodeRef.current.disconnect();
+        // Close the port if it's an AudioWorkletNode
+        if (workletNodeRef.current.port) {
+          workletNodeRef.current.port.close();
+        }
+      } catch (err) {
+        debugLog('Error disconnecting audio processor:', err);
+      }
+      workletNodeRef.current = null;
+    }
+
+    // Disconnect source node
+    if (sourceNodeRef.current) {
+      try {
+        sourceNodeRef.current.disconnect();
+      } catch (err) {
+        debugLog('Error disconnecting source node:', err);
+      }
+      sourceNodeRef.current = null;
+    }
+
+    // Stop and clean up web media stream tracks
+    if (webMediaStreamRef.current) {
+      try {
+        webMediaStreamRef.current.getTracks().forEach(track => track.stop());
+      } catch (err) {
+        debugLog('Error stopping media stream tracks:', err);
+      }
+      webMediaStreamRef.current = null;
+    }
+
     // Clean up AudioContext if it exists
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
       try {
@@ -356,7 +476,7 @@ export default function App() {
       }
       audioContextRef.current = null;
     }
-    
+
     if (!recording) {
       return;
     }
