@@ -1,7 +1,9 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView, Platform } from 'react-native';
 import { Audio } from 'expo-av';
+import MatchedTextWidget from './components/MatchedTextWidget';
+import { findBestMatch, findHighlightPosition, getDocumentMetadata, debounce } from './utils/textMatcher';
 
 // Development-only logging helper
 // __DEV__ is a built-in React Native constant that is automatically:
@@ -27,10 +29,7 @@ const WS_SERVER_URL = 'ws://localhost:2700';
 
 export default function App() {
   const [recording, setRecording] = useState(null);
-  const [sound, setSound] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [recordingUri, setRecordingUri] = useState(null);
   const [transcription, setTranscription] = useState('');
   const wsRef = useRef(null);
   const finalTranscriptionRef = useRef('');
@@ -39,6 +38,27 @@ export default function App() {
   const sourceNodeRef = useRef(null);
   const recordingIntervalRef = useRef(null);
   const audioContextRef = useRef(null);
+
+  // Text matching state
+  const [matchState, setMatchState] = useState({
+    isLoading: false,
+    matchedDocument: null,
+    matchedContent: null,
+    highlightPosition: null,
+    confidence: 0
+  });
+  const searchIndexRef = useRef(null);
+  const documentCacheRef = useRef({});
+  const matchContextRef = useRef({
+    previousDocId: null,
+    previousParagraphNum: null,
+    previousSection: null,
+    previousScore: 0,
+    // Paragraph-based highlight tracking
+    firstParagraphNum: null,  // First paragraph matched in this section
+    currentParagraphNum: null // Current/latest paragraph matched
+  });
+  const audioChunksRef = useRef([]); // Circular buffer for recent audio
 
   // Initialize WebSocket connection
   const connectWebSocket = () => {
@@ -67,7 +87,13 @@ export default function App() {
               const combined = finalTranscriptionRef.current && finalTranscriptionRef.current.trim().length > 0
                 ? finalTranscriptionRef.current + ' ' + data.partial
                 : data.partial;
-              setTranscription(getLastWords(combined, 50));
+              setTranscription(combined);
+
+              // Trigger text matching using all transcribed words for better accuracy
+              const wordsToMatch = combined.split(/\s+/).filter(w => w.length > 0);
+              if (wordsToMatch.length >= 3) {
+                performTextMatch(wordsToMatch);
+              }
             } else if (data.final && data.final.trim().length > 0) {
               // Final results are appended to the accumulated final transcription
               const newFinal = finalTranscriptionRef.current && finalTranscriptionRef.current.trim().length > 0
@@ -75,7 +101,13 @@ export default function App() {
                 : data.final;
               finalTranscriptionRef.current = newFinal;
               // Update display with the new final transcription
-              setTranscription(getLastWords(newFinal, 50));
+              setTranscription(newFinal);
+
+              // Trigger text matching using all transcribed words for better accuracy
+              const wordsToMatch = newFinal.split(/\s+/).filter(w => w.length > 0);
+              if (wordsToMatch.length >= 3) {
+                performTextMatch(wordsToMatch);
+              }
             }
           } catch (err) {
             debugLog('Error parsing transcription:', err);
@@ -102,6 +134,228 @@ export default function App() {
       wsRef.current = null;
     }
   };
+
+  // Load search index on mount
+  useEffect(() => {
+    const loadSearchIndex = async () => {
+      console.log('[MATCH] Loading search index...');
+      try {
+        // Try to load the search index from public folder
+        const response = await fetch('/search-index.json');
+        console.log('[MATCH] Fetch response:', response.status, response.ok);
+        if (response.ok) {
+          const index = await response.json();
+          searchIndexRef.current = index;
+          console.log('[MATCH] Search index loaded:', index.documents?.length, 'entries');
+        } else {
+          console.log('[MATCH] Search index not found - text matching disabled');
+        }
+      } catch (err) {
+        console.log('[MATCH] Failed to load search index:', err.message);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      loadSearchIndex();
+    }
+  }, []);
+
+  // Fetch full section content when a match is found
+  // Returns the entire section text with paragraph offsets for cross-paragraph highlighting
+  const fetchDocumentContent = useCallback(async (docId, section, paragraphNum) => {
+    // Cache by section (not paragraph) since we now fetch full sections
+    const cacheKey = `${docId}-${section}`;
+    if (documentCacheRef.current[cacheKey]) {
+      console.log('[FETCH] Cache hit:', cacheKey);
+      return documentCacheRef.current[cacheKey];
+    }
+
+    try {
+      console.log('[FETCH] Fetching document:', docId, 'section:', section);
+      // Fetch full document
+      const response = await fetch(`/texts/${docId}.json`);
+      if (!response.ok) {
+        console.log('[FETCH] Document not found:', docId, response.status);
+        throw new Error(`Document not found: ${docId}`);
+      }
+
+      const doc = await response.json();
+      console.log('[FETCH] Document loaded, sections:', doc.sections?.length);
+
+      // Find the section by title (sections is an array, not an object)
+      const sectionObj = doc.sections?.find(s => s.title === section);
+      console.log('[FETCH] Section found:', sectionObj ? 'yes' : 'no');
+
+      if (sectionObj && sectionObj.paragraphs) {
+        // Build full section text and track paragraph offsets
+        const paragraphOffsets = []; // Start offset of each paragraph
+        let fullText = '';
+
+        for (let i = 0; i < sectionObj.paragraphs.length; i++) {
+          paragraphOffsets.push(fullText.length);
+          fullText += sectionObj.paragraphs[i];
+          // Add paragraph separator (double newline) between paragraphs
+          if (i < sectionObj.paragraphs.length - 1) {
+            fullText += '\n\n';
+          }
+        }
+
+        console.log('[FETCH] Full section:', sectionObj.paragraphs.length, 'paragraphs,', fullText.length, 'chars');
+
+        const content = {
+          docId,
+          title: doc.title,
+          author: doc.author,
+          url: doc.url,
+          section,
+          text: fullText,
+          paragraphOffsets, // Array of start positions for each paragraph
+          paragraphCount: sectionObj.paragraphs.length
+        };
+
+        // Cache for future use
+        documentCacheRef.current[cacheKey] = content;
+        console.log('[FETCH] Content cached and returning');
+        return content;
+      }
+    } catch (err) {
+      console.log('[FETCH] Error:', err.message);
+    }
+
+    console.log('[FETCH] Returning null - content not found');
+    return null;
+  }, []);
+
+  // Perform text matching (debounced)
+  // Stickiness threshold: require this much higher score to switch to different document/paragraph
+  const SWITCH_THRESHOLD = 0.15;
+
+  const performTextMatch = useCallback(
+    debounce(async (words) => {
+      // Log summary: first 5 words ... last 5 words
+      const wordsSummary = words.length <= 12
+        ? words.join(' ')
+        : words.slice(0, 5).join(' ') + ' ... ' + words.slice(-5).join(' ');
+      console.log('[MATCH] performTextMatch called with', words.length, 'words:', wordsSummary);
+      if (!searchIndexRef.current) {
+        console.log('[MATCH] No search index loaded');
+        return;
+      }
+      if (words.length < 3) {
+        console.log('[MATCH] Not enough words:', words.length);
+        return;
+      }
+
+      const match = findBestMatch(words, searchIndexRef.current, matchContextRef.current);
+      console.log('[MATCH] findBestMatch result:', match ? `${match.docId} score=${match.score?.toFixed(2)}` : 'no match');
+
+      if (match) {
+        const ctx = matchContextRef.current;
+        // Check if we're in the same section (allow free movement within section)
+        const isSameSectionMatch = ctx.previousDocId === match.docId &&
+                                   ctx.previousSection === match.section;
+
+        // Apply stickiness: require higher score to switch to a different section/document
+        // Movement within the same section is allowed without penalty
+        if (!isSameSectionMatch && ctx.previousDocId) {
+          const scoreDiff = match.score - ctx.previousScore;
+          if (scoreDiff < SWITCH_THRESHOLD) {
+            console.log('[MATCH] Stickiness: staying in current section (score diff:', scoreDiff.toFixed(2), '< threshold:', SWITCH_THRESHOLD, ')');
+            return; // Don't switch - not confident enough
+          }
+          console.log('[MATCH] Switching to new section (score diff:', scoreDiff.toFixed(2), ')');
+        }
+
+        console.log('[MATCH] Match found:', match.docId, match.section, 'paragraphNum:', match.paragraphNum, 'score:', match.score.toFixed(2));
+
+        // Check if we're in the same section (full section is now displayed)
+        const isSameSection = ctx.previousDocId === match.docId &&
+                              ctx.previousSection === match.section;
+
+        // Fetch full section content
+        setMatchState(prev => ({ ...prev, isLoading: true }));
+
+        const content = await fetchDocumentContent(match.docId, match.section, match.paragraphNum);
+
+        if (content) {
+          // Paragraph-based highlighting: highlight from first matched paragraph to current
+          const currentParagraphIndex = match.paragraphNum - 1; // paragraphNum is 1-indexed
+
+          // Check if this is a valid sequential progression
+          const isSameParagraph = isSameSection && ctx.currentParagraphNum === match.paragraphNum;
+          const isNextParagraph = isSameSection && match.paragraphNum === ctx.currentParagraphNum + 1;
+          const isValidProgression = isSameParagraph || isNextParagraph;
+
+          let firstParagraphIndex;
+          if (isValidProgression && ctx.firstParagraphNum !== null) {
+            // Valid progression: keep tracking from first matched paragraph
+            firstParagraphIndex = ctx.firstParagraphNum - 1;
+            console.log('[MATCH] Valid progression:', isSameParagraph ? 'same paragraph' : 'next paragraph');
+          } else {
+            // Non-sequential jump or new section: reset highlight to current paragraph
+            firstParagraphIndex = currentParagraphIndex;
+            if (isSameSection && !isValidProgression) {
+              console.log('[MATCH] Non-sequential jump from paragraph', ctx.currentParagraphNum, 'to', match.paragraphNum, '- resetting highlight');
+            }
+          }
+
+          // Calculate highlight start: beginning of first matched paragraph
+          const highlightStart = content.paragraphOffsets[firstParagraphIndex] || 0;
+
+          // Calculate highlight end: end of current paragraph
+          const nextParagraphOffset = content.paragraphOffsets[currentParagraphIndex + 1];
+          const highlightEnd = nextParagraphOffset !== undefined
+            ? nextParagraphOffset - 2  // Subtract 2 for '\n\n' separator
+            : content.text.length;
+
+          // Calculate current paragraph position for scrolling
+          const currentParagraphStart = content.paragraphOffsets[currentParagraphIndex] || 0;
+          const currentParagraphEnd = highlightEnd;
+
+          const highlightPosition = {
+            start: highlightStart,
+            end: highlightEnd,
+            currentStart: currentParagraphStart,  // For scrolling to current paragraph
+            currentEnd: currentParagraphEnd,
+            contextStart: 0,
+            contextEnd: content.text.length
+          };
+
+          console.log('[MATCH] Paragraph-based highlight: paragraphs', firstParagraphIndex + 1, 'to', currentParagraphIndex + 1,
+            '(chars', highlightStart, '-', highlightEnd, ')');
+
+          // Update match context for continuity
+          matchContextRef.current = {
+            previousDocId: match.docId,
+            previousParagraphNum: match.paragraphNum,
+            previousSection: match.section,
+            previousScore: match.score,
+            firstParagraphNum: firstParagraphIndex + 1,  // Store as 1-indexed
+            currentParagraphNum: match.paragraphNum
+          };
+
+          // Get metadata
+          const metadata = getDocumentMetadata(searchIndexRef.current, match.docId);
+
+          setMatchState({
+            isLoading: false,
+            matchedDocument: {
+              ...content,
+              title: metadata?.title || content.title,
+              author: metadata?.author || content.author,
+              url: metadata?.url || content.url
+            },
+            matchedContent: content.text,
+            highlightPosition,
+            confidence: match.score
+          });
+        } else {
+          setMatchState(prev => ({ ...prev, isLoading: false }));
+        }
+      }
+    }, 750),  // Debounce interval - slightly longer to reduce jumpiness
+    [fetchDocumentContent]
+  );
 
   // Convert recorded WebM audio to raw PCM format for Vosk (16kHz, 16-bit, mono).
   //
@@ -204,9 +458,24 @@ export default function App() {
         Alert.alert('Warning', 'Could not connect to transcription server. Recording will work but transcription will not be available.');
       }
 
-      // Clear previous transcription
+      // Clear previous transcription and match state
       setTranscription('');
       finalTranscriptionRef.current = '';
+      matchContextRef.current = {
+        previousDocId: null,
+        previousParagraphNum: null,
+        previousSection: null,
+        previousScore: 0,
+        firstParagraphNum: null,
+        currentParagraphNum: null
+      };
+      setMatchState({
+        isLoading: false,
+        matchedDocument: null,
+        matchedContent: null,
+        highlightPosition: null,
+        confidence: 0
+      });
 
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
@@ -336,12 +605,22 @@ export default function App() {
               workletNodeRef.current = workletNode;
 
               // Handle messages from the worklet (PCM data ready to send)
+              // Maximum audio chunks to keep (~30 seconds at 1 chunk/second)
+              const MAX_AUDIO_CHUNKS = 30;
+
               workletNode.port.onmessage = (event) => {
+                const samples = event.data.samples;
+
+                // Store chunk in circular buffer for limited playback
+                audioChunksRef.current.push(new Float32Array(samples));
+                if (audioChunksRef.current.length > MAX_AUDIO_CHUNKS) {
+                  audioChunksRef.current.shift(); // Remove oldest chunk
+                }
+
                 if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
                   return;
                 }
 
-                const samples = event.data.samples;
                 // Convert float32 to int16 PCM
                 const pcm16 = new Int16Array(samples.length);
                 for (let i = 0; i < samples.length; i++) {
@@ -373,11 +652,10 @@ export default function App() {
             let accumulatedSamples = [];
             const samplesPerSecond = targetSampleRate;
 
-            scriptProcessor.onaudioprocess = (event) => {
-              if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-                return;
-              }
+            // Maximum audio chunks to keep (~30 seconds at 1 chunk/second)
+            const MAX_AUDIO_CHUNKS_FALLBACK = 30;
 
+            scriptProcessor.onaudioprocess = (event) => {
               const inputData = event.inputBuffer.getChannelData(0);
               const resampledLength = Math.floor(inputData.length * resampleRatio);
 
@@ -391,13 +669,18 @@ export default function App() {
               }
 
               if (accumulatedSamples.length >= samplesPerSecond) {
-                const pcm16 = new Int16Array(accumulatedSamples.length);
-                for (let i = 0; i < accumulatedSamples.length; i++) {
-                  const s = Math.max(-1, Math.min(1, accumulatedSamples[i]));
-                  pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                // Store in circular buffer for limited playback
+                audioChunksRef.current.push(new Float32Array(accumulatedSamples));
+                if (audioChunksRef.current.length > MAX_AUDIO_CHUNKS_FALLBACK) {
+                  audioChunksRef.current.shift(); // Remove oldest chunk
                 }
 
                 if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                  const pcm16 = new Int16Array(accumulatedSamples.length);
+                  for (let i = 0; i < accumulatedSamples.length; i++) {
+                    const s = Math.max(-1, Math.min(1, accumulatedSamples[i]));
+                    pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                  }
                   wsRef.current.send(new Uint8Array(pcm16.buffer));
                   debugLog('[DEBUG] PCM sent (fallback), samples:', pcm16.length, 'bytes:', pcm16.buffer.byteLength);
                 }
@@ -490,8 +773,10 @@ export default function App() {
         allowsRecordingIOS: false,
       });
       const uri = currentRecording.getURI();
-      setRecordingUri(uri);
-      debugLog('Recording stopped and stored at', uri);
+      debugLog('Recording stopped at', uri);
+
+      // Clear audio chunks buffer since we don't need playback
+      audioChunksRef.current = [];
 
       let pcmData = null;
 
@@ -561,64 +846,6 @@ export default function App() {
     }
   }
 
-  async function playSound() {
-    if (!recordingUri) {
-      Alert.alert('No Recording', 'Please record audio first before playing back.');
-      return;
-    }
-
-    // Prevent multiple simultaneous playback
-    if (isPlaying) {
-      debugLog('Sound already playing, ignoring playback request');
-      return;
-    }
-
-    try {
-      // If a sound is already loaded, unload it before creating a new one
-      if (sound) {
-        debugLog('Unloading previous sound before loading new one');
-        // Remove any existing status update listener before unloading
-        await sound.setOnPlaybackStatusUpdate(null);
-        await sound.unloadAsync();
-        setSound(null);
-      }
-
-      setIsPlaying(true);
-      debugLog('Loading Sound');
-      const { sound: audioSound } = await Audio.Sound.createAsync(
-        { uri: recordingUri },
-        { shouldPlay: true }
-      );
-      
-      // Set up playback status listener to track when playback finishes
-      audioSound.setOnPlaybackStatusUpdate((status) => {
-        if (status.didJustFinish) {
-          setIsPlaying(false);
-        }
-      });
-      
-      setSound(audioSound);
-
-      debugLog('Playing Sound');
-      await audioSound.playAsync();
-    } catch (err) {
-      console.error('Failed to play sound', err);
-      Alert.alert('Error', 'Failed to play sound: ' + err.message);
-      setIsPlaying(false);
-    }
-  }
-
-  React.useEffect(() => {
-    return sound
-      ? () => {
-          debugLog('Unloading Sound');
-          sound.unloadAsync().catch((err) => {
-            console.error('Failed to unload sound', err);
-          });
-        }
-      : undefined;
-  }, [sound]);
-
   // Cleanup WebSocket on unmount
   React.useEffect(() => {
     return () => {
@@ -629,12 +856,6 @@ export default function App() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>FollowAlong Audio Recorder</Text>
-      
-      <View style={styles.statusContainer}>
-        <Text style={styles.statusText}>
-          {isRecording ? '🔴 Recording...' : recordingUri ? '✓ Recording ready' : '⚪ Ready to record'}
-        </Text>
-      </View>
 
       <View style={styles.buttonsContainer}>
         <TouchableOpacity
@@ -645,26 +866,26 @@ export default function App() {
             {isRecording ? 'Stop Recording' : 'Start Recording'}
           </Text>
         </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.button, styles.playbackButton, (!recordingUri || isPlaying) && styles.disabledButton]}
-          onPress={playSound}
-          disabled={!recordingUri || isPlaying}
-        >
-          <Text style={styles.buttonText}>
-            {isPlaying ? 'Playing...' : 'Playback'}
-          </Text>
-        </TouchableOpacity>
       </View>
 
       <View style={styles.transcriptionContainer}>
-        <Text style={styles.transcriptionLabel}>Transcription (last 50 words):</Text>
+        <Text style={styles.transcriptionLabel}>Transcription:</Text>
         <ScrollView style={styles.transcriptionScrollView}>
           <Text style={[styles.transcriptionText, !transcription && styles.placeholderText]}>
             {transcription || 'Transcription will appear here when you start recording...'}
           </Text>
         </ScrollView>
       </View>
+
+      {Platform.OS === 'web' && (
+        <MatchedTextWidget
+          matchedDocument={matchState.matchedDocument}
+          fullContent={matchState.matchedContent}
+          highlightPosition={matchState.highlightPosition}
+          isLoading={matchState.isLoading}
+          confidence={matchState.confidence}
+        />
+      )}
 
       <StatusBar style="auto" />
     </View>
@@ -676,8 +897,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     padding: 20,
+    paddingTop: 60,
   },
   title: {
     fontSize: 28,
@@ -685,28 +907,11 @@ const styles = StyleSheet.create({
     marginBottom: 40,
     color: '#333',
   },
-  statusContainer: {
-    backgroundColor: '#fff',
-    padding: 20,
-    borderRadius: 10,
-    marginBottom: 30,
-    minWidth: 250,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  statusText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-  },
   buttonsContainer: {
     width: '100%',
     maxWidth: 300,
     gap: 15,
+    marginBottom: 20,
   },
   button: {
     padding: 18,
@@ -725,13 +930,6 @@ const styles = StyleSheet.create({
   stopButton: {
     backgroundColor: '#FF3B30',
   },
-  playbackButton: {
-    backgroundColor: '#007AFF',
-  },
-  disabledButton: {
-    backgroundColor: '#ccc',
-    opacity: 0.6,
-  },
   buttonText: {
     color: '#fff',
     fontSize: 18,
@@ -742,8 +940,7 @@ const styles = StyleSheet.create({
     padding: 15,
     borderRadius: 10,
     marginBottom: 20,
-    width: '100%',
-    maxWidth: 500,
+    width: '80%',
     maxHeight: 200,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
