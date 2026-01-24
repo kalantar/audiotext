@@ -7,7 +7,7 @@
  * - Uses browser scrolling for navigation
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -59,6 +59,35 @@ const MatchedTextWidget = ({
   isLoading,
   confidence
 }) => {
+  const scrollViewRef = useRef(null);
+  const highlightYPosition = useRef(null);
+
+  // Handle layout of highlighted text to capture its position
+  const handleHighlightLayout = useCallback((event) => {
+    const { y } = event.nativeEvent.layout;
+    highlightYPosition.current = y;
+
+    // Auto-scroll to highlighted text
+    if (scrollViewRef.current && y !== null) {
+      requestAnimationFrame(() => {
+        scrollViewRef.current?.scrollTo({
+          y: Math.max(0, y - 20),
+          animated: true
+        });
+      });
+    }
+  }, []);
+
+  // Scroll when highlight position changes
+  useEffect(() => {
+    if (highlightPosition && highlightYPosition.current !== null && scrollViewRef.current) {
+      scrollViewRef.current.scrollTo({
+        y: Math.max(0, highlightYPosition.current - 20),
+        animated: true
+      });
+    }
+  }, [highlightPosition]);
+
   // Loading state
   if (isLoading) {
     return (
@@ -106,17 +135,33 @@ const MatchedTextWidget = ({
         confidence={confidence}
       />
 
-      <ScrollView style={styles.textScrollView}>
+      <ScrollView ref={scrollViewRef} style={styles.textScrollView}>
         <Text style={styles.verseLabel}>
           {matchedDocument.section && `${matchedDocument.section} `}
           {matchedDocument.verseNum && `#${matchedDocument.verseNum}`}
         </Text>
 
-        <Text style={styles.textContent}>
-          <Text style={styles.contextText}>{beforeText}</Text>
-          <Text style={styles.highlightedText}>{highlightedText}</Text>
-          <Text style={styles.contextText}>{afterText}</Text>
-        </Text>
+        {beforeText && (
+          <Text style={[styles.textContent, styles.contextText]}>
+            {beforeText}
+          </Text>
+        )}
+
+        {highlightPosition && (
+          <View onLayout={handleHighlightLayout} style={styles.scrollMarker} />
+        )}
+
+        <View collapsable={false}>
+          <Text style={[styles.textContent, styles.highlightedText]}>
+            {highlightedText}
+          </Text>
+        </View>
+
+        {afterText && (
+          <Text style={[styles.textContent, styles.contextText]}>
+            {afterText}
+          </Text>
+        )}
       </ScrollView>
     </View>
   );
@@ -172,6 +217,10 @@ const styles = StyleSheet.create({
   },
   textScrollView: {
     flex: 1,
+  },
+  scrollMarker: {
+    height: 0,
+    width: 0,
   },
   verseLabel: {
     fontSize: 12,
