@@ -69,12 +69,12 @@ const MatchedTextWidget = ({
 
     // Auto-scroll to highlighted text
     if (scrollViewRef.current && y !== null) {
-      setTimeout(() => {
+      requestAnimationFrame(() => {
         scrollViewRef.current?.scrollTo({
           y: Math.max(0, y - 20),
           animated: true
         });
-      }, 100);
+      });
     }
   }, []);
 
@@ -147,7 +147,9 @@ const MatchedTextWidget = ({
           </Text>
         )}
 
-        <View onLayout={handleHighlightLayout} style={styles.scrollMarker} />
+        {highlightPosition && (
+          <View onLayout={handleHighlightLayout} style={styles.scrollMarker} />
+        )}
 
         <View collapsable={false}>
           <Text style={[styles.textContent, styles.highlightedText]}>
