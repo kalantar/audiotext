@@ -187,18 +187,23 @@ export function findBestMatch(words, searchIndex, context = {}) {
     // Calculate fuzzy n-gram overlap score
     const ngramScore = fuzzyNgramOverlap(searchNgrams, doc.ngrams);
 
-    // Continuity bonus: boost score if same document as previous match
+    // Weighted base score - favor token overlap for fuzzy matching
+    const baseScore = (tokenScore * 0.5) + (ngramScore * 0.3);
+
+    // Continuity bonus: small boost for same document, but only if base match is decent
     let continuityBonus = 0;
-    if (context.previousDocId === doc.docId) {
-      continuityBonus = 0.1;
-      // Extra bonus if sequential paragraph
+    if (context.previousDocId === doc.docId && baseScore >= 0.12) {
+      // Multiplicative bonus instead of fixed addition
+      continuityBonus = baseScore * 0.15; // 15% boost to base score
+
+      // Extra boost if sequential paragraph
       if (context.previousParagraphNum && doc.paragraphNum === context.previousParagraphNum + 1) {
-        continuityBonus = 0.2;
+        continuityBonus = baseScore * 0.25; // 25% boost for sequential
       }
     }
 
-    // Weighted final score - favor token overlap for fuzzy matching
-    const score = (tokenScore * 0.5) + (ngramScore * 0.3) + continuityBonus;
+    // Final score with continuity bonus
+    const score = baseScore + continuityBonus;
 
     // Track top matches for debugging
     if (debugTopMatches.length < 3 || score > debugTopMatches[debugTopMatches.length - 1]?.score) {
