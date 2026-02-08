@@ -20,7 +20,7 @@ import {
 /**
  * Document Header Component
  */
-const DocumentHeader = ({ title, author, url, confidence }) => {
+const DocumentHeader = ({ title, author, url, confidence, isMatching }) => {
   const handleOpenSource = useCallback(() => {
     if (url) {
       Linking.openURL(url).catch(err => {
@@ -40,6 +40,9 @@ const DocumentHeader = ({ title, author, url, confidence }) => {
           <View style={[styles.confidenceBar, { width: `${Math.min(100, confidence * 100)}%` }]} />
         </View>
       )}
+      {isMatching && (
+        <Text style={styles.searchingText}>...</Text>
+      )}
       {url && (
         <TouchableOpacity onPress={handleOpenSource} style={styles.sourceLink}>
           <Text style={styles.sourceLinkText}>Source</Text>
@@ -57,7 +60,8 @@ const MatchedTextWidget = ({
   fullContent,
   highlightPosition,
   isLoading,
-  confidence
+  confidence,
+  isMatching
 }) => {
   const scrollViewRef = useRef(null);
   const highlightYPosition = useRef(null);
@@ -105,7 +109,7 @@ const MatchedTextWidget = ({
       <View style={styles.widgetContainer}>
         <View style={styles.noMatchContainer}>
           <Text style={styles.noMatchText}>
-            Speak to find matching text...
+            {isMatching ? 'Searching...' : 'Speak to find matching text...'}
           </Text>
           <Text style={styles.noMatchHint}>
             The app will search for matching passages as you speak.
@@ -133,6 +137,7 @@ const MatchedTextWidget = ({
         author={matchedDocument.author}
         url={matchedDocument.url}
         confidence={confidence}
+        isMatching={isMatching}
       />
 
       <ScrollView ref={scrollViewRef} style={styles.textScrollView}>
@@ -206,6 +211,11 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: '#34C759',
     borderRadius: 2,
+  },
+  searchingText: {
+    fontSize: 11,
+    color: '#999',
+    marginHorizontal: 4,
   },
   sourceLink: {
     paddingHorizontal: 8,
