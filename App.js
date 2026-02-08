@@ -27,10 +27,15 @@ const getLastWords = (text, wordCount) => {
 // WebSocket server configuration
 const WS_SERVER_URL = 'ws://localhost:2700';
 
+// Number of recent words to use for text matching
+// Large enough for noisy/KJ-English transcription signal, small enough to track progression
+const MATCH_WINDOW_WORDS = 45;
+
 export default function App() {
   const [recording, setRecording] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [transcription, setTranscription] = useState('');
+  const [isTranscriptionExpanded, setIsTranscriptionExpanded] = useState(false);
   const wsRef = useRef(null);
   const finalTranscriptionRef = useRef('');
   const webMediaStreamRef = useRef(null);
@@ -89,8 +94,9 @@ export default function App() {
                 : data.partial;
               setTranscription(combined);
 
-              // Trigger text matching using all transcribed words for better accuracy
-              const wordsToMatch = combined.split(/\s+/).filter(w => w.length > 0);
+              // Trigger text matching using a sliding window of recent words
+              const recentText = getLastWords(combined, MATCH_WINDOW_WORDS);
+              const wordsToMatch = recentText.split(/\s+/).filter(w => w.length > 0);
               if (wordsToMatch.length >= 3) {
                 performTextMatch(wordsToMatch);
               }
@@ -103,8 +109,9 @@ export default function App() {
               // Update display with the new final transcription
               setTranscription(newFinal);
 
-              // Trigger text matching using all transcribed words for better accuracy
-              const wordsToMatch = newFinal.split(/\s+/).filter(w => w.length > 0);
+              // Trigger text matching using a sliding window of recent words
+              const recentText = getLastWords(newFinal, MATCH_WINDOW_WORDS);
+              const wordsToMatch = recentText.split(/\s+/).filter(w => w.length > 0);
               if (wordsToMatch.length >= 3) {
                 performTextMatch(wordsToMatch);
               }
@@ -869,12 +876,21 @@ export default function App() {
       </View>
 
       <View style={styles.transcriptionContainer}>
-        <Text style={styles.transcriptionLabel}>Transcription:</Text>
-        <ScrollView style={styles.transcriptionScrollView}>
-          <Text style={[styles.transcriptionText, !transcription && styles.placeholderText]}>
-            {transcription || 'Transcription will appear here when you start recording...'}
+        <TouchableOpacity
+          onPress={() => setIsTranscriptionExpanded(!isTranscriptionExpanded)}
+          style={styles.transcriptionHeader}
+        >
+          <Text style={styles.transcriptionLabel}>
+            {isTranscriptionExpanded ? '▼' : '▶'} Transcription
           </Text>
-        </ScrollView>
+        </TouchableOpacity>
+        {isTranscriptionExpanded && (
+          <ScrollView style={styles.transcriptionScrollView}>
+            <Text style={[styles.transcriptionText, !transcription && styles.placeholderText]}>
+              {transcription || 'Transcription will appear here when you start recording...'}
+            </Text>
+          </ScrollView>
+        )}
       </View>
 
       {Platform.OS === 'web' && (
@@ -947,6 +963,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  transcriptionHeader: {
+    width: '100%',
   },
   transcriptionLabel: {
     fontSize: 14,
