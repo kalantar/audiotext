@@ -581,7 +581,7 @@ export default function App() {
                     super();
                     this.samples = [];
                     this.targetSampleRate = 16000;
-                    this.samplesPerChunk = this.targetSampleRate; // ~1 second
+                    this.samplesPerChunk = this.targetSampleRate / 2; // ~500ms
                   }
 
                   process(inputs, outputs, parameters) {
@@ -668,7 +668,7 @@ export default function App() {
 
             const resampleRatio = targetSampleRate / sourceSampleRate;
             let accumulatedSamples = [];
-            const samplesPerSecond = targetSampleRate;
+            const samplesPerSecond = targetSampleRate / 2;
 
             // Maximum audio chunks to keep (~30 seconds at 1 chunk/second)
             const MAX_AUDIO_CHUNKS_FALLBACK = 30;
