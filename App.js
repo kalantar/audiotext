@@ -619,7 +619,7 @@ export default function App() {
               workletNodeRef.current = workletNode;
 
               // Handle messages from the worklet (PCM data ready to send)
-              // Maximum audio chunks to keep (~30 seconds at 1 chunk/second)
+              // Maximum audio chunks to keep (~15 seconds at 1 chunk per 500ms)
               const MAX_AUDIO_CHUNKS = 30;
 
               workletNode.port.onmessage = (event) => {
@@ -666,7 +666,7 @@ export default function App() {
             let accumulatedSamples = [];
             const samplesPerSecond = targetSampleRate / 2;
 
-            // Maximum audio chunks to keep (~30 seconds at 1 chunk/second)
+            // Maximum audio chunks to keep (~15 seconds at 1 chunk per 500ms)
             const MAX_AUDIO_CHUNKS_FALLBACK = 30;
 
             scriptProcessor.onaudioprocess = (event) => {
