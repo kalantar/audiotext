@@ -310,13 +310,15 @@ export default function App() {
             // Check if this is a valid sequential progression
             const isSameParagraph = isSameSection && ctx.currentParagraphNum === match.paragraphNum;
             const isNextParagraph = isSameSection && match.paragraphNum === ctx.currentParagraphNum + 1;
-            const isValidProgression = isSameParagraph || isNextParagraph;
+            // Re-lock: switching to a better document but landing on same paragraph we already confirmed
+            const isRelock = !isSameSection && match.paragraphNum === ctx.currentParagraphNum;
+            const isValidProgression = isSameParagraph || isNextParagraph || isRelock;
 
             let firstParagraphIndex;
             if (isValidProgression && ctx.firstParagraphNum !== null) {
               // Valid progression: keep tracking from first matched paragraph
               firstParagraphIndex = ctx.firstParagraphNum - 1;
-              console.log('[MATCH] Valid progression:', isSameParagraph ? 'same paragraph' : 'next paragraph');
+              console.log('[MATCH] Valid progression:', isSameParagraph ? 'same paragraph' : isNextParagraph ? 'next paragraph' : 're-lock');
             } else {
               // Non-sequential jump or new section: reset highlight to current paragraph
               firstParagraphIndex = currentParagraphIndex;
