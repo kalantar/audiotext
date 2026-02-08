@@ -93,7 +93,7 @@ const MatchedTextWidget = ({
   }, [highlightPosition]);
 
   // Loading state
-  if (isLoading) {
+  if (isLoading && !matchedDocument) {
     return (
       <View style={styles.widgetContainer}>
         <View style={styles.loadingContainer}>
