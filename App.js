@@ -238,8 +238,7 @@ export default function App() {
 
   // Perform text matching (debounced)
   // Stickiness threshold: require this much higher score to switch to different document/paragraph
-  const SWITCH_THRESHOLD_NEW_DOC = 0.15;  // require meaningful score gain to jump to different doc
-  const SWITCH_THRESHOLD_FORWARD = 0.0;   // free to advance forward within same document
+  const SWITCH_THRESHOLD = 0.15;  // require meaningful score gain to switch to different section/document
 
   const performTextMatch = useCallback(
     debounce(async (words) => {
@@ -271,14 +270,11 @@ export default function App() {
           // Movement within the same section is allowed without penalty
           if (!isSameSectionMatch && ctx.previousDocId) {
             const scoreDiff = match.score - ctx.previousScore;
-            const isForwardInSameDoc = match.docId === ctx.previousDocId &&
-                                       match.paragraphNum > ctx.currentParagraphNum;
-            const threshold = isForwardInSameDoc ? SWITCH_THRESHOLD_FORWARD : SWITCH_THRESHOLD_NEW_DOC;
-            if (scoreDiff < threshold) {
-              console.log('[MATCH] Stickiness: staying in current section (score diff:', scoreDiff.toFixed(2), '< threshold:', threshold, ')');
+            if (scoreDiff < SWITCH_THRESHOLD) {
+              console.log('[MATCH] Stickiness: staying in current section (score diff:', scoreDiff.toFixed(2), ')');
               return; // Don't switch - not confident enough
             }
-            console.log('[MATCH] Moving to new section (score diff:', scoreDiff.toFixed(2), ', forward:', isForwardInSameDoc, ')');
+            console.log('[MATCH] Moving to new section (score diff:', scoreDiff.toFixed(2), ')');
           }
 
           console.log('[MATCH] Match found:', match.docId, match.section, 'paragraphNum:', match.paragraphNum, 'score:', match.score.toFixed(2));
