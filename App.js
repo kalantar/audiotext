@@ -193,8 +193,23 @@ export default function App() {
       console.log('[FETCH] Document loaded, sections:', doc.sections?.length);
 
       // Find the section by title (sections is an array, not an object)
-      const sectionObj = doc.sections?.find(s => s.title === section);
-      console.log('[FETCH] Section found:', sectionObj ? 'yes' : 'no');
+      // Normalize for comparison: handle whitespace and case differences
+      const normalize = s => s?.trim().toLowerCase();
+      const matchingSections = doc.sections?.filter(
+        s => normalize(s.title) === normalize(section)
+      );
+      // If multiple sections share the same title (e.g. Gems of Divine Mysteries),
+      // pick the one that contains enough paragraphs to include the matched paragraphNum
+      const sectionObj = matchingSections?.find(s => (s.paragraphs?.length ?? 0) >= paragraphNum)
+        ?? matchingSections?.[0];
+
+      if (!sectionObj) {
+        console.log('[FETCH] Section not found:', section,
+          'Available:', doc.sections?.map(s => `"${s.title}"(${s.paragraphs?.length}p)`).join(', '));
+      } else {
+        console.log('[FETCH] Section found:', sectionObj.title,
+          `(${sectionObj.paragraphs?.length} paragraphs)`);
+      }
 
       if (sectionObj && sectionObj.paragraphs) {
         // Build full section text and track paragraph offsets
