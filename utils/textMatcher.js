@@ -168,7 +168,7 @@ function fuzzyNgramOverlap(searchNgrams, docNgrams) {
  * @param {Object} context - Previous match context for continuity
  * @returns {Object|null} - Best match with score, or null if no good match
  */
-export function findBestMatch(words, searchIndex, context = {}) {
+export function findBestMatch(words, searchIndex, context = {}, prediction = null) {
   if (!searchIndex || !searchIndex.documents || words.length < 3) {
     return null;
   }
@@ -202,8 +202,21 @@ export function findBestMatch(words, searchIndex, context = {}) {
       }
     }
 
+    // Temporal continuity bonus: boost nearby paragraphs if we have a prediction
+    let neighborhoodBonus = 0;
+    if (prediction && doc.docId === prediction.docId) {
+      const distance = Math.abs(doc.paragraphNum - prediction.paragraphNum);
+      if (distance <= 3) {
+        neighborhoodBonus = 0.10;
+        // Stronger bonus for exact predicted paragraph
+        if (doc.paragraphNum === prediction.paragraphNum) {
+          neighborhoodBonus = 0.15;
+        }
+      }
+    }
+
     // Final score with continuity bonus
-    const score = baseScore + continuityBonus;
+    const score = baseScore + continuityBonus + neighborhoodBonus;
 
     // Track top matches for debugging
     if (debugTopMatches.length < 3 || score > debugTopMatches[debugTopMatches.length - 1]?.score) {
@@ -219,7 +232,8 @@ export function findBestMatch(words, searchIndex, context = {}) {
         score,
         tokenScore,
         ngramScore,
-        continuityBonus
+        continuityBonus,
+        neighborhoodBonus
       };
     }
   }
