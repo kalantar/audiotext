@@ -273,7 +273,32 @@ export default function App() {
           return;
         }
 
-        const match = findBestMatch(words, searchIndexRef.current, matchContextRef.current);
+        // Temporal continuity: detect if last 2-3 matches show sequential progression
+        let prediction = null;
+        const history = matchContextRef.current.matchHistory || [];
+        if (history.length >= 2) {
+          // Check if last 2-3 entries form a valid sequence
+          const isSequential = history.every((entry, idx) => {
+            if (idx === 0) return true;
+            const prev = history[idx - 1];
+            // Same document, and paragraph stays same or increments by 1
+            return entry.docId === prev.docId &&
+                   (entry.paragraphNum === prev.paragraphNum ||
+                    entry.paragraphNum === prev.paragraphNum + 1);
+          });
+
+          if (isSequential) {
+            const lastMatch = history[history.length - 1];
+            prediction = {
+              docId: lastMatch.docId,
+              paragraphNum: lastMatch.paragraphNum + 1  // Predict next paragraph
+            };
+            console.log('[MATCH] Temporal continuity detected: predicting',
+              prediction.docId, 'paragraph', prediction.paragraphNum);
+          }
+        }
+
+        const match = findBestMatch(words, searchIndexRef.current, matchContextRef.current, prediction);
         console.log('[MATCH] findBestMatch result:', match ? `${match.docId} score=${match.score?.toFixed(2)}` : 'no match');
 
         if (match) {
