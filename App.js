@@ -62,7 +62,8 @@ export default function App() {
     previousScore: 0,
     // Paragraph-based highlight tracking
     firstParagraphNum: null,  // First paragraph matched in this section
-    currentParagraphNum: null // Current/latest paragraph matched
+    currentParagraphNum: null, // Current/latest paragraph matched
+    matchHistory: []  // Track last 3 matches for temporal continuity
   });
   const audioChunksRef = useRef([]); // Circular buffer for recent audio
 
@@ -352,6 +353,14 @@ export default function App() {
             console.log('[MATCH] Paragraph-based highlight: paragraphs', firstParagraphIndex + 1, 'to', currentParagraphIndex + 1,
               '(chars', highlightStart, '-', highlightEnd, ')');
 
+            // Update match history for temporal continuity (keep last 3)
+            const newHistoryEntry = {
+              docId: match.docId,
+              paragraphNum: match.paragraphNum,
+              section: match.section
+            };
+            const updatedHistory = [...(ctx.matchHistory || []), newHistoryEntry].slice(-3);
+
             // Update match context for continuity
             matchContextRef.current = {
               previousDocId: match.docId,
@@ -359,7 +368,8 @@ export default function App() {
               previousSection: match.section,
               previousScore: match.score,
               firstParagraphNum: firstParagraphIndex + 1,  // Store as 1-indexed
-              currentParagraphNum: match.paragraphNum
+              currentParagraphNum: match.paragraphNum,
+              matchHistory: updatedHistory
             };
 
             // Get metadata
@@ -498,7 +508,8 @@ export default function App() {
         previousSection: null,
         previousScore: 0,
         firstParagraphNum: null,
-        currentParagraphNum: null
+        currentParagraphNum: null,
+        matchHistory: []
       };
       setMatchState({
         isLoading: false,
