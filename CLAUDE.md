@@ -44,7 +44,7 @@ MatchedTextWidget (display with highlighting)
 ### Frontend (App.js)
 - Records audio using Expo AV
 - Platform-specific audio handling:
-  - **Web**: MediaRecorder API with WebM → converts to 16kHz mono PCM via Web Audio API → streams 1-second chunks
+  - **Web**: MediaRecorder API with WebM → converts to 16kHz mono PCM via Web Audio API → streams 500ms chunks
   - **Native (iOS/Android)**: Records WAV → sends complete file as 8KB PCM chunks after recording stops
 - Displays split view:
   - **Left side**: Last 50 words of accumulated transcription
@@ -58,18 +58,23 @@ MatchedTextWidget (display with highlighting)
 - Returns JSON: `{partial: "..."}` or `{final: "..."}`
 
 ### Text Matching (utils/textMatcher.js)
-- **Fuzzy matching algorithm** with Levenshtein distance (max 2 edits)
-- **N-gram similarity** (3, 4, 5-word sequences)
-- **Continuity bonus** for sequential paragraphs in same document
-- Filters stop words and normalizes text
+- **Sliding window matching**: Uses last 45 words (not all accumulated text) to enable paragraph-to-paragraph progression
+- **Fuzzy matching algorithm** with Levenshtein distance (max 2 edits) for noisy speech-to-text tolerance
+- **N-gram similarity** (3, 4, 5-word sequences) weighted at 30%
+- **Temporal continuity**: Tracks last 3 matched paragraphs to detect sequential reading patterns
+- **Neighborhood bonus**: When sequential progression is detected, boosts scores for nearby paragraphs (+0.10 for ±1-3, +0.15 for exact prediction)
+- **Stickiness threshold**: 0.15 score differential required to switch documents/sections (prevents jumping on noise)
+- **Robust section lookup**: Normalizes titles (trim + lowercase), handles duplicate section names by picking section with enough paragraphs
 - Match threshold: 0.08 (very low for noisy speech-to-text)
-- Returns best match with confidence score
+- Returns best match with confidence score and metadata
 
 ### UI Components
 - **MatchedTextWidget** (`components/MatchedTextWidget.js`):
-  - Displays document header (title, author, confidence bar)
+  - Displays document header (title, author, confidence bar, "..." searching indicator)
   - Shows full text with highlighted matched passage
-  - Auto-scrolls to highlighted section
+  - **Content persistence**: matched text stays visible during loading (no flash/blank state)
+  - **Growing highlight**: highlights from first matched paragraph to current paragraph in a session
+  - Auto-scrolls to current paragraph position
   - Source link to bahai.org
 
 ### Data Files
@@ -91,7 +96,9 @@ MatchedTextWidget (display with highlighting)
 - Use `debugLog()` helper for dev-only logging (checks `__DEV__`)
 - WebSocket sends use `sendSafe()` to check connection state before sending
 - Text matching runs **debounced** to avoid excessive computation
-- Match algorithm uses **fuzzy token overlap** (50% weight) + **n-gram similarity** (30% weight) + **continuity bonus** (up to 20%)
+- Match algorithm uses **fuzzy token overlap** (50% weight) + **n-gram similarity** (30% weight) + **neighborhood bonus** (0.10-0.15 when sequential progression detected)
+- Text matching uses a **45-word sliding window** instead of all accumulated words to enable paragraph progression
+- Audio chunks sent to Vosk every **500ms** for faster transcription response
 
 ## Coding Conventions
 
