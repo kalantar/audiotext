@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView, Platform } from 'react-native';
 import { Audio } from 'expo-av';
-import { Provider as PaperProvider, MD3LightTheme } from 'react-native-paper';
+import { Provider as PaperProvider, MD3LightTheme, FAB } from 'react-native-paper';
 import MatchedTextWidget from './components/MatchedTextWidget';
 import { findBestMatch, findHighlightPosition, getDocumentMetadata, debounce } from './utils/textMatcher';
 
@@ -962,16 +962,16 @@ export default function App() {
       <View style={styles.container}>
         <Text style={styles.title}>FollowAlong Audio Recorder</Text>
 
-        <View style={styles.buttonsContainer}>
-          <TouchableOpacity
-            style={[styles.button, isRecording ? styles.stopButton : styles.recordButton]}
-            onPress={isRecording ? stopRecording : startRecording}
-          >
-            <Text style={styles.buttonText}>
-              {isRecording ? 'Stop Recording' : 'Start Recording'}
-            </Text>
-          </TouchableOpacity>
-        </View>
+        <FAB
+          icon={isRecording ? "stop" : "microphone"}
+          label={isRecording ? "Stop" : "Record"}
+          mode="elevated"
+          size="large"
+          animated={true}
+          onPress={isRecording ? stopRecording : startRecording}
+          style={[styles.fab, isRecording && styles.fabRecording]}
+          color={isRecording ? '#fff' : undefined}
+        />
 
         <View style={styles.transcriptionContainer}>
           <TouchableOpacity
@@ -1023,33 +1023,16 @@ const styles = StyleSheet.create({
     marginBottom: 40,
     color: '#333',
   },
-  buttonsContainer: {
-    width: '100%',
-    maxWidth: 300,
-    gap: 15,
-    marginBottom: 20,
+  fab: {
+    position: 'absolute',
+    alignSelf: 'center',  // KEEP THIS - bottom-center positioning
+    bottom: 16,
+    margin: 16,
+    backgroundColor: '#9d5c0d', // Warm brown primary color
+    zIndex: 1000,
   },
-  button: {
-    padding: 18,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 4,
-  },
-  recordButton: {
-    backgroundColor: '#34C759',
-  },
-  stopButton: {
-    backgroundColor: '#FF3B30',
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
+  fabRecording: {
+    backgroundColor: '#d32f2f', // Red background when recording
   },
   transcriptionContainer: {
     backgroundColor: '#fff',
