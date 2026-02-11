@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView, Platform } from 'react-native';
 import { Audio } from 'expo-av';
-import { Provider as PaperProvider, MD3LightTheme, FAB } from 'react-native-paper';
+import { Provider as PaperProvider, MD3LightTheme, FAB, IconButton, Portal, Modal } from 'react-native-paper';
 import MatchedTextWidget from './components/MatchedTextWidget';
 import { findBestMatch, findHighlightPosition, getDocumentMetadata, debounce } from './utils/textMatcher';
 
@@ -73,6 +73,7 @@ export default function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [transcription, setTranscription] = useState('');
   const [isTranscriptionExpanded, setIsTranscriptionExpanded] = useState(false);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
   const wsRef = useRef(null);
   const finalTranscriptionRef = useRef('');
   const webMediaStreamRef = useRef(null);
@@ -973,23 +974,12 @@ export default function App() {
           color={isRecording ? '#fff' : undefined}
         />
 
-        <View style={styles.transcriptionContainer}>
-          <TouchableOpacity
-            onPress={() => setIsTranscriptionExpanded(!isTranscriptionExpanded)}
-            style={styles.transcriptionHeader}
-          >
-            <Text style={styles.transcriptionLabel}>
-              {isTranscriptionExpanded ? '▼' : '▶'} Transcription
-            </Text>
-          </TouchableOpacity>
-          {isTranscriptionExpanded && (
-            <ScrollView style={styles.transcriptionScrollView}>
-              <Text style={[styles.transcriptionText, !transcription && styles.placeholderText]}>
-                {transcription || 'Transcription will appear here when you start recording...'}
-              </Text>
-            </ScrollView>
-          )}
-        </View>
+        <IconButton
+          icon="bug"
+          size={20}
+          onPress={() => setShowDebugPanel(true)}
+          style={styles.debugButton}
+        />
 
         {Platform.OS === 'web' && (
           <MatchedTextWidget
@@ -1004,6 +994,28 @@ export default function App() {
 
         <StatusBar style="auto" />
       </View>
+
+      <Portal>
+        <Modal
+          visible={showDebugPanel}
+          onDismiss={() => setShowDebugPanel(false)}
+          contentContainerStyle={styles.debugModal}
+        >
+          <View style={styles.debugHeader}>
+            <Text style={styles.debugTitle}>Debug: Transcription</Text>
+            <IconButton
+              icon="close"
+              size={20}
+              onPress={() => setShowDebugPanel(false)}
+            />
+          </View>
+          <ScrollView style={styles.debugContent}>
+            <Text style={styles.transcriptionText}>
+              {transcription || 'Transcription will appear here when you start recording...'}
+            </Text>
+          </ScrollView>
+        </Modal>
+      </Portal>
     </PaperProvider>
   );
 }
@@ -1034,38 +1046,39 @@ const styles = StyleSheet.create({
   fabRecording: {
     backgroundColor: '#d32f2f', // Red background when recording
   },
-  transcriptionContainer: {
-    backgroundColor: '#fff',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 20,
-    width: '80%',
-    maxHeight: 200,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+  debugButton: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    margin: 0,
   },
-  transcriptionHeader: {
-    width: '100%',
+  debugModal: {
+    backgroundColor: 'white',
+    padding: 20,
+    margin: 20,
+    borderRadius: 8,
+    maxHeight: '80%',
   },
-  transcriptionLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-    marginBottom: 8,
+  debugHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    paddingBottom: 10,
   },
-  transcriptionScrollView: {
-    maxHeight: 150,
+  debugTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  debugContent: {
+    maxHeight: 400,
   },
   transcriptionText: {
-    fontSize: 16,
+    fontSize: 14,
+    lineHeight: 20,
     color: '#333',
-    lineHeight: 24,
-  },
-  placeholderText: {
-    fontStyle: 'italic',
-    color: '#999',
   },
 });
