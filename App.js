@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView, Platform } from 'react-native';
 import { Audio } from 'expo-av';
+import { Provider as PaperProvider, MD3LightTheme } from 'react-native-paper';
 import MatchedTextWidget from './components/MatchedTextWidget';
 import { findBestMatch, findHighlightPosition, getDocumentMetadata, debounce } from './utils/textMatcher';
 
@@ -30,6 +31,42 @@ const WS_SERVER_URL = 'ws://localhost:2700';
 // Number of recent words to use for text matching
 // Large enough for noisy/KJ-English transcription signal, small enough to track progression
 const MATCH_WINDOW_WORDS = 45;
+
+const customTheme = {
+  ...MD3LightTheme,
+  colors: {
+    ...MD3LightTheme.colors,
+    primary: '#9d5c0d', // Warm brown for Bahá'í aesthetic
+    primaryContainer: '#f5e6d3', // Light cream
+    secondary: '#6b4423',
+    surface: '#fdfaf5', // Off-white paper color
+    surfaceVariant: '#f5f0e8',
+    background: '#f5f5f0',
+    elevation: {
+      level0: 'transparent',
+      level1: '#fdfaf5',
+      level2: '#faf7f2',
+      level3: '#f7f4ef',
+      level4: '#f5f2ed',
+      level5: '#f2efea',
+    }
+  },
+  fonts: {
+    ...MD3LightTheme.fonts,
+    bodyLarge: {
+      ...MD3LightTheme.fonts.bodyLarge,
+      fontFamily: 'Georgia', // Serif for reading
+      fontSize: 18,
+      lineHeight: 28,
+    },
+    bodyMedium: {
+      ...MD3LightTheme.fonts.bodyMedium,
+      fontFamily: 'Georgia',
+      fontSize: 16,
+      lineHeight: 24,
+    },
+  },
+};
 
 export default function App() {
   const [recording, setRecording] = useState(null);
@@ -921,51 +958,53 @@ export default function App() {
   }, []);
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>FollowAlong Audio Recorder</Text>
+    <PaperProvider theme={customTheme}>
+      <View style={styles.container}>
+        <Text style={styles.title}>FollowAlong Audio Recorder</Text>
 
-      <View style={styles.buttonsContainer}>
-        <TouchableOpacity
-          style={[styles.button, isRecording ? styles.stopButton : styles.recordButton]}
-          onPress={isRecording ? stopRecording : startRecording}
-        >
-          <Text style={styles.buttonText}>
-            {isRecording ? 'Stop Recording' : 'Start Recording'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.transcriptionContainer}>
-        <TouchableOpacity
-          onPress={() => setIsTranscriptionExpanded(!isTranscriptionExpanded)}
-          style={styles.transcriptionHeader}
-        >
-          <Text style={styles.transcriptionLabel}>
-            {isTranscriptionExpanded ? '▼' : '▶'} Transcription
-          </Text>
-        </TouchableOpacity>
-        {isTranscriptionExpanded && (
-          <ScrollView style={styles.transcriptionScrollView}>
-            <Text style={[styles.transcriptionText, !transcription && styles.placeholderText]}>
-              {transcription || 'Transcription will appear here when you start recording...'}
+        <View style={styles.buttonsContainer}>
+          <TouchableOpacity
+            style={[styles.button, isRecording ? styles.stopButton : styles.recordButton]}
+            onPress={isRecording ? stopRecording : startRecording}
+          >
+            <Text style={styles.buttonText}>
+              {isRecording ? 'Stop Recording' : 'Start Recording'}
             </Text>
-          </ScrollView>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.transcriptionContainer}>
+          <TouchableOpacity
+            onPress={() => setIsTranscriptionExpanded(!isTranscriptionExpanded)}
+            style={styles.transcriptionHeader}
+          >
+            <Text style={styles.transcriptionLabel}>
+              {isTranscriptionExpanded ? '▼' : '▶'} Transcription
+            </Text>
+          </TouchableOpacity>
+          {isTranscriptionExpanded && (
+            <ScrollView style={styles.transcriptionScrollView}>
+              <Text style={[styles.transcriptionText, !transcription && styles.placeholderText]}>
+                {transcription || 'Transcription will appear here when you start recording...'}
+              </Text>
+            </ScrollView>
+          )}
+        </View>
+
+        {Platform.OS === 'web' && (
+          <MatchedTextWidget
+            matchedDocument={matchState.matchedDocument}
+            fullContent={matchState.matchedContent}
+            highlightPosition={matchState.highlightPosition}
+            isLoading={matchState.isLoading}
+            confidence={matchState.confidence}
+            isMatching={isMatching}
+          />
         )}
+
+        <StatusBar style="auto" />
       </View>
-
-      {Platform.OS === 'web' && (
-        <MatchedTextWidget
-          matchedDocument={matchState.matchedDocument}
-          fullContent={matchState.matchedContent}
-          highlightPosition={matchState.highlightPosition}
-          isLoading={matchState.isLoading}
-          confidence={matchState.confidence}
-          isMatching={isMatching}
-        />
-      )}
-
-      <StatusBar style="auto" />
-    </View>
+    </PaperProvider>
   );
 }
 
