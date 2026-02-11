@@ -2,7 +2,7 @@
  * Test Case: Short Prayer with Noise
  *
  * Synthetic test with added noise to simulate speech-to-text errors.
- * Expected to match: prayers-meditations paragraph 1
+ * Expected to match: prayers-meditations paragraph 3
  *
  * Run with: npm start, then in browser console:
  * import { runTest } from './tests/short-prayer-with-noise-test.js';
@@ -11,21 +11,25 @@
 
 export const testCase = {
   // Noisy transcribed text
-  transcribedText: `by bahá’u’lláh`,
+  transcribedText: `glorified art thou, o lord my god! every man of insight confesseth thy sovereignty and thy dominion, and every discerning eye perceiveth the greatness of thy majesty and the compelling power of thy might. the winds of tests are powerless to hold back them that enjoy near access to the from setting their faces towards the horizon of thy glory, and the tempests of trials must fail to draw away and hinder such as are wholly devoted to thy will from approaching thy court.`,
 
   // Expected correct match
   expectedMatch: {
     docId: 'prayers-meditations',
-    section: 'I',
-    paragraphNum: 1
+    section: 'Prayers and Meditations',
+    paragraphNum: 3
   },
 
   // Actual paragraph text for reference
-  correctParagraphText: `by Bahá’u’lláh`,
+  correctParagraphText: `Glorified art Thou, O Lord my God! Every man of insight confesseth Thy sovereignty and Thy dominion, and every discerning eye perceiveth the greatness of Thy majesty and the compelling power of Thy might. The winds of tests are powerless to hold back them that enjoy near access to Thee from setting their faces towards the horizon of Thy glory, and the tempests of trials must fail to draw away and hinder such as are wholly devoted to Thy will from approaching Thy court.`,
 
   // Progressive transcription stages (simulating real-time speech recognition)
   progressiveStages: [
-
+    { words: 'glorified art you, o lord my', wordCount: 6, description: 'Below minimum threshold (< 8 words)' },
+    { words: 'glorified art you, o lord my god! every man of', wordCount: 10, description: 'Just above minimum (10 words)' },
+    { words: 'glorified art you, o lord my god! every man of insight confesseth thy sovereignty and thy', wordCount: 16, description: 'Good context for matching (16 words)' },
+    { words: 'glorified art you, o lord my god! every man of insight confesseth thy sovereignty and thy dominion, and every discerning eye perceiveth the greatness of', wordCount: 25, description: 'Excellent context (25 words)' },
+    { words: 'glorified art you, o lord my god! every man of insight confesseth thy sovereignty and thy dominion, and every discerning eye perceiveth the greatness of thy majesty and the compelling power of thy might. the winds of tests are powerless to hold back them that', wordCount: 45, description: 'Full sliding window (45 words)' }
   ]
 };
 

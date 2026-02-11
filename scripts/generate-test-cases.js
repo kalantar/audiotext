@@ -147,9 +147,9 @@ function generateProgressiveStages(text, includeNoise = false) {
 }
 
 function generateTestCase(docId, section, paragraphNum, testName, includeNoise = false) {
-  const fullText = findParagraphText(docId, paragraphNum);
+  const fullText = findParagraphText(docId, paragraphNum, section);
   if (!fullText) {
-    console.error(`Could not find paragraph ${paragraphNum} in ${docId}`);
+    console.error(`Could not find paragraph ${paragraphNum} in section "${section}" of ${docId}`);
     return null;
   }
 
@@ -288,28 +288,28 @@ const syntheticTests = [
   {
     docId: 'kitab-i-iqan',
     section: 'Part One',
-    paragraphNum: 2,
-    testName: 'Unique Opener - Kitáb-i-Íqán Part One Opening',
+    paragraphNum: 8,
+    testName: 'Unique Text - Kitáb-i-Íqán Noah Story',
     includeNoise: false
   },
   {
     docId: 'hidden-words',
     section: 'From the Arabic',
-    paragraphNum: 1,
+    paragraphNum: 3,
     testName: 'Common Phrase - "O Son of..." (Arabic #1)',
     includeNoise: false
   },
   {
-    docId: 'gleanings-writings-bahaullah',
-    section: 'I',
-    paragraphNum: 1,
-    testName: 'Long Text - Gleanings Selection I',
+    docId: 'epistle-son-wolf',
+    section: 'Epistle to the Son of the Wolf',
+    paragraphNum: 10,
+    testName: 'Long Text - Epistle Mid-Paragraph',
     includeNoise: true
   },
   {
     docId: 'prayers-meditations',
-    section: 'I',
-    paragraphNum: 1,
+    section: 'Prayers and Meditations',
+    paragraphNum: 3,
     testName: 'Short Prayer with Noise',
     includeNoise: true
   }

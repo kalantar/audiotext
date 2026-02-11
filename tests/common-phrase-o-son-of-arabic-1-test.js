@@ -2,7 +2,7 @@
  * Test Case: Common Phrase - "O Son of..." (Arabic #1)
  *
  * Synthetic test with clean text.
- * Expected to match: hidden-words paragraph 1
+ * Expected to match: hidden-words paragraph 3
  *
  * Run with: npm start, then in browser console:
  * import { runTest } from './tests/common-phrase-o-son-of-arabic-1-test.js';
@@ -11,21 +11,24 @@
 
 export const testCase = {
   // Clean transcribed text
-  transcribedText: `bahá’u’lláh`,
+  transcribedText: `1 o son of spirit! my first counsel is this: possess a pure, kindly and radiant heart, that thine may be a sovereignty ancient, imperishable and everlasting.`,
 
   // Expected correct match
   expectedMatch: {
     docId: 'hidden-words',
     section: 'From the Arabic',
-    paragraphNum: 1
+    paragraphNum: 3
   },
 
   // Actual paragraph text for reference
-  correctParagraphText: `Bahá’u’lláh`,
+  correctParagraphText: `1 O Son of Spirit! My first counsel is this: Possess a pure, kindly and radiant heart, that thine may be a sovereignty ancient, imperishable and everlasting.`,
 
   // Progressive transcription stages (simulating real-time speech recognition)
   progressiveStages: [
-
+    { words: '1 O Son of Spirit! My', wordCount: 6, description: 'Below minimum threshold (< 8 words)' },
+    { words: '1 O Son of Spirit! My first counsel is this:', wordCount: 10, description: 'Just above minimum (10 words)' },
+    { words: '1 O Son of Spirit! My first counsel is this: Possess a pure, kindly and radiant', wordCount: 16, description: 'Good context for matching (16 words)' },
+    { words: '1 O Son of Spirit! My first counsel is this: Possess a pure, kindly and radiant heart, that thine may be a sovereignty ancient, imperishable', wordCount: 25, description: 'Excellent context (25 words)' }
   ]
 };
 

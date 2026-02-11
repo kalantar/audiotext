@@ -25,9 +25,9 @@ const { findBestMatch } = textMatcherModule;
 const specificTest = process.argv[2];
 const testFiles = specificTest ? [specificTest] : [
   'paragraph-67-test.js',
-  'unique-opener-kit-b-i-q-n-part-one-opening-test.js',
+  'unique-text-kit-b-i-q-n-noah-story-test.js',
   'common-phrase-o-son-of-arabic-1-test.js',
-  'long-text-gleanings-selection-i-test.js',
+  'long-text-epistle-mid-paragraph-test.js',
   'short-prayer-with-noise-test.js'
 ];
 
