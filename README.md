@@ -1,6 +1,6 @@
 # audiotext
 
-An audio recording application built with React Native and Expo for cross-platform mobile development.
+An application that listens to someone reading a text and identifies the source of the text from the Bahá'í writings (pulled from https://library.bahai.org). The text is displayed to the user and the current passage is highlighted. As the reader continues, additonal text will be hilighted.
 
 ## Project Structure
 
