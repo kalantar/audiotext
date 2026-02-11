@@ -141,14 +141,26 @@ function fuzzyTokenOverlap(searchTokens, docTokens) {
 
 /**
  * Calculate fuzzy n-gram overlap score
+ * Optimized with Set for exact matches and early exit
  */
 function fuzzyNgramOverlap(searchNgrams, docNgrams) {
   if (searchNgrams.length === 0 || docNgrams.length === 0) return 0;
 
   let matchScore = 0;
 
+  // Convert doc n-grams to Set for O(1) exact match lookup
+  const docNgramSet = new Set(docNgrams);
+
   for (const searchNgram of searchNgrams) {
+    // OPTIMIZATION 1: Try exact match first (O(1) Set lookup)
+    if (docNgramSet.has(searchNgram)) {
+      matchScore += 1.0;
+      continue; // Early exit for this search n-gram
+    }
+
+    // OPTIMIZATION 2: Only do fuzzy matching if no exact match
     const searchWords = searchNgram.split(' ');
+    let bestMatchRatio = 0;
 
     for (const docNgram of docNgrams) {
       const docWords = docNgram.split(' ');
@@ -163,16 +175,55 @@ function fuzzyNgramOverlap(searchNgrams, docNgrams) {
         }
       }
 
-      // If most words match, count it as a partial match
       const matchRatio = wordMatches / searchWords.length;
-      if (matchRatio >= 0.6) {
-        matchScore += matchRatio;
-        break; // Only count best match for this search n-gram
+
+      // OPTIMIZATION 3: Early exit if we find a perfect match
+      if (matchRatio === 1.0) {
+        bestMatchRatio = 1.0;
+        break;
       }
+
+      bestMatchRatio = Math.max(bestMatchRatio, matchRatio);
+    }
+
+    // Only count if match ratio >= 0.6
+    if (bestMatchRatio >= 0.6) {
+      matchScore += bestMatchRatio;
     }
   }
 
   return searchNgrams.length > 0 ? matchScore / searchNgrams.length : 0;
+}
+
+/**
+ * Compute token signature for pre-screening
+ * Uses first 2 characters of each token for fast approximate matching
+ */
+function computeTokenSignature(tokens) {
+  const signature = new Set();
+  for (const token of tokens) {
+    if (token.length >= 2) {
+      signature.add(token.substring(0, 2));
+    }
+  }
+  return signature;
+}
+
+/**
+ * Check if document has minimal token overlap for pre-screening
+ * Returns true if document should be considered (>=15% signature overlap)
+ */
+function hasMinimalOverlap(searchSignature, docTokens, threshold = 0.15) {
+  if (searchSignature.size === 0) return false;
+
+  let matchCount = 0;
+  for (const token of docTokens) {
+    if (token.length >= 2 && searchSignature.has(token.substring(0, 2))) {
+      matchCount++;
+    }
+  }
+
+  return (matchCount / searchSignature.size) >= threshold;
 }
 
 /**
@@ -184,18 +235,31 @@ function fuzzyNgramOverlap(searchNgrams, docNgrams) {
  * @returns {Object|null} - Best match with score, or null if no good match
  */
 export function findBestMatch(words, searchIndex, context = {}, prediction = null) {
-  if (!searchIndex || !searchIndex.documents || words.length < 3) {
+  if (!searchIndex || !searchIndex.documents || words.length < 8) {
     return null;
   }
 
   const searchTokens = tokenize(words.join(' '));
   const searchNgrams = generateNgrams(words.map(w => w.toLowerCase()));
 
+  // PASS 1: Pre-screening with token signatures
+  // Quickly filter out 70-80% of documents that have minimal token overlap
+  // Lower threshold (10%) to tolerate noisy speech recognition
+  const searchSignature = computeTokenSignature(searchTokens);
+  const candidates = [];
+
+  for (const doc of searchIndex.documents) {
+    if (hasMinimalOverlap(searchSignature, doc.tokens, 0.10)) {
+      candidates.push(doc);
+    }
+  }
+
+  // PASS 2: Detailed fuzzy matching only on candidates
   let bestMatch = null;
   let bestScore = 0;
   let debugTopMatches = [];
 
-  for (const doc of searchIndex.documents) {
+  for (const doc of candidates) {
     // Calculate fuzzy token overlap score
     const tokenScore = fuzzyTokenOverlap(searchTokens, doc.tokens);
 

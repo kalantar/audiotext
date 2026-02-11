@@ -268,8 +268,8 @@ export default function App() {
           console.log('[MATCH] No search index loaded');
           return;
         }
-        if (words.length < 3) {
-          console.log('[MATCH] Not enough words:', words.length);
+        if (words.length < 8) {
+          console.log('[MATCH] Not enough words (need 8+):', words.length);
           return;
         }
 
@@ -630,7 +630,7 @@ export default function App() {
                     super();
                     this.samples = [];
                     this.targetSampleRate = 16000;
-                    this.samplesPerChunk = this.targetSampleRate / 2; // ~500ms
+                    this.samplesPerChunk = this.targetSampleRate / 4; // ~250ms
                   }
 
                   process(inputs, outputs, parameters) {
@@ -717,10 +717,10 @@ export default function App() {
 
             const resampleRatio = targetSampleRate / sourceSampleRate;
             let accumulatedSamples = [];
-            const samplesPerSecond = targetSampleRate / 2;
+            const samplesPerSecond = targetSampleRate / 4;
 
-            // Maximum audio chunks to keep (~15 seconds at 1 chunk per 500ms)
-            const MAX_AUDIO_CHUNKS_FALLBACK = 30;
+            // Maximum audio chunks to keep (~15 seconds at 1 chunk per 250ms)
+            const MAX_AUDIO_CHUNKS_FALLBACK = 60;
 
             scriptProcessor.onaudioprocess = (event) => {
               const inputData = event.inputBuffer.getChannelData(0);
