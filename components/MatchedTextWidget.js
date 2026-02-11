@@ -7,7 +7,7 @@
  * - Uses browser scrolling for navigation
  */
 
-import React, { useCallback, useRef, useEffect } from 'react';
+import React, { useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -19,8 +19,9 @@ import {
 
 /**
  * Document Header Component
+ * Memoized to prevent unnecessary re-renders when props haven't changed
  */
-const DocumentHeader = ({ title, author, url, confidence }) => {
+const DocumentHeader = React.memo(({ title, author, url, confidence, isMatching }) => {
   const handleOpenSource = useCallback(() => {
     if (url) {
       Linking.openURL(url).catch(err => {
@@ -40,6 +41,9 @@ const DocumentHeader = ({ title, author, url, confidence }) => {
           <View style={[styles.confidenceBar, { width: `${Math.min(100, confidence * 100)}%` }]} />
         </View>
       )}
+      {isMatching && (
+        <Text style={styles.searchingText}>...</Text>
+      )}
       {url && (
         <TouchableOpacity onPress={handleOpenSource} style={styles.sourceLink}>
           <Text style={styles.sourceLinkText}>Source</Text>
@@ -47,7 +51,14 @@ const DocumentHeader = ({ title, author, url, confidence }) => {
       )}
     </View>
   );
-};
+}, (prevProps, nextProps) => {
+  // Custom comparison: only re-render if these props actually changed
+  return prevProps.title === nextProps.title &&
+         prevProps.author === nextProps.author &&
+         prevProps.url === nextProps.url &&
+         prevProps.confidence === nextProps.confidence &&
+         prevProps.isMatching === nextProps.isMatching;
+});
 
 /**
  * Main MatchedTextWidget Component
@@ -57,7 +68,8 @@ const MatchedTextWidget = ({
   fullContent,
   highlightPosition,
   isLoading,
-  confidence
+  confidence,
+  isMatching
 }) => {
   const scrollViewRef = useRef(null);
   const highlightYPosition = useRef(null);
@@ -88,8 +100,33 @@ const MatchedTextWidget = ({
     }
   }, [highlightPosition]);
 
+  // Extract text portions for display - show full document with highlight
+  // Memoize to avoid expensive substring operations on every render
+  // MUST be before early returns to comply with Rules of Hooks
+  const textSegments = useMemo(() => {
+    if (!fullContent) {
+      return { before: '', highlighted: '', after: '' };
+    }
+
+    if (!highlightPosition) {
+      return {
+        before: '',
+        highlighted: fullContent.substring(0, 100),
+        after: fullContent.substring(100)
+      };
+    }
+
+    return {
+      before: fullContent.substring(0, highlightPosition.start),
+      highlighted: fullContent.substring(highlightPosition.start, highlightPosition.end),
+      after: fullContent.substring(highlightPosition.end)
+    };
+  }, [fullContent, highlightPosition]);
+
+  const { before: beforeText, highlighted: highlightedText, after: afterText } = textSegments;
+
   // Loading state
-  if (isLoading) {
+  if (isLoading && !matchedDocument) {
     return (
       <View style={styles.widgetContainer}>
         <View style={styles.loadingContainer}>
@@ -105,7 +142,7 @@ const MatchedTextWidget = ({
       <View style={styles.widgetContainer}>
         <View style={styles.noMatchContainer}>
           <Text style={styles.noMatchText}>
-            Speak to find matching text...
+            {isMatching ? 'Searching...' : 'Speak to find matching text...'}
           </Text>
           <Text style={styles.noMatchHint}>
             The app will search for matching passages as you speak.
@@ -115,17 +152,6 @@ const MatchedTextWidget = ({
     );
   }
 
-  // Extract text portions for display - show full document with highlight
-  const beforeText = highlightPosition
-    ? fullContent.substring(0, highlightPosition.start)
-    : '';
-  const highlightedText = highlightPosition
-    ? fullContent.substring(highlightPosition.start, highlightPosition.end)
-    : fullContent.substring(0, 100);
-  const afterText = highlightPosition
-    ? fullContent.substring(highlightPosition.end)
-    : fullContent.substring(100);
-
   return (
     <View style={styles.widgetContainer}>
       <DocumentHeader
@@ -133,6 +159,7 @@ const MatchedTextWidget = ({
         author={matchedDocument.author}
         url={matchedDocument.url}
         confidence={confidence}
+        isMatching={isMatching}
       />
 
       <ScrollView ref={scrollViewRef} style={styles.textScrollView}>
@@ -206,6 +233,11 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: '#34C759',
     borderRadius: 2,
+  },
+  searchingText: {
+    fontSize: 11,
+    color: '#999',
+    marginHorizontal: 4,
   },
   sourceLink: {
     paddingHorizontal: 8,

@@ -27,10 +27,15 @@ const getLastWords = (text, wordCount) => {
 // WebSocket server configuration
 const WS_SERVER_URL = 'ws://localhost:2700';
 
+// Number of recent words to use for text matching
+// Large enough for noisy/KJ-English transcription signal, small enough to track progression
+const MATCH_WINDOW_WORDS = 45;
+
 export default function App() {
   const [recording, setRecording] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [transcription, setTranscription] = useState('');
+  const [isTranscriptionExpanded, setIsTranscriptionExpanded] = useState(false);
   const wsRef = useRef(null);
   const finalTranscriptionRef = useRef('');
   const webMediaStreamRef = useRef(null);
@@ -40,6 +45,7 @@ export default function App() {
   const audioContextRef = useRef(null);
 
   // Text matching state
+  const [isMatching, setIsMatching] = useState(false);
   const [matchState, setMatchState] = useState({
     isLoading: false,
     matchedDocument: null,
@@ -56,7 +62,8 @@ export default function App() {
     previousScore: 0,
     // Paragraph-based highlight tracking
     firstParagraphNum: null,  // First paragraph matched in this section
-    currentParagraphNum: null // Current/latest paragraph matched
+    currentParagraphNum: null, // Current/latest paragraph matched
+    matchHistory: []  // Track last 3 matches for temporal continuity
   });
   const audioChunksRef = useRef([]); // Circular buffer for recent audio
 
@@ -89,9 +96,11 @@ export default function App() {
                 : data.partial;
               setTranscription(combined);
 
-              // Trigger text matching using all transcribed words for better accuracy
-              const wordsToMatch = combined.split(/\s+/).filter(w => w.length > 0);
+              // Trigger text matching using a sliding window of recent words
+              const recentText = getLastWords(combined, MATCH_WINDOW_WORDS);
+              const wordsToMatch = recentText.split(/\s+/).filter(w => w.length > 0);
               if (wordsToMatch.length >= 3) {
+                setIsMatching(true);
                 performTextMatch(wordsToMatch);
               }
             } else if (data.final && data.final.trim().length > 0) {
@@ -103,9 +112,11 @@ export default function App() {
               // Update display with the new final transcription
               setTranscription(newFinal);
 
-              // Trigger text matching using all transcribed words for better accuracy
-              const wordsToMatch = newFinal.split(/\s+/).filter(w => w.length > 0);
+              // Trigger text matching using a sliding window of recent words
+              const recentText = getLastWords(newFinal, MATCH_WINDOW_WORDS);
+              const wordsToMatch = recentText.split(/\s+/).filter(w => w.length > 0);
               if (wordsToMatch.length >= 3) {
+                setIsMatching(true);
                 performTextMatch(wordsToMatch);
               }
             }
@@ -183,8 +194,23 @@ export default function App() {
       console.log('[FETCH] Document loaded, sections:', doc.sections?.length);
 
       // Find the section by title (sections is an array, not an object)
-      const sectionObj = doc.sections?.find(s => s.title === section);
-      console.log('[FETCH] Section found:', sectionObj ? 'yes' : 'no');
+      // Normalize for comparison: handle whitespace and case differences
+      const normalize = s => s?.trim().toLowerCase();
+      const matchingSections = doc.sections?.filter(
+        s => normalize(s.title) === normalize(section)
+      );
+      // If multiple sections share the same title (e.g. Gems of Divine Mysteries),
+      // pick the one that contains enough paragraphs to include the matched paragraphNum
+      const sectionObj = matchingSections?.find(s => (s.paragraphs?.length ?? 0) >= paragraphNum)
+        ?? matchingSections?.[0];
+
+      if (!sectionObj) {
+        console.log('[FETCH] Section not found:', section,
+          'Available:', doc.sections?.map(s => `"${s.title}"(${s.paragraphs?.length}p)`).join(', '));
+      } else {
+        console.log('[FETCH] Section found:', sectionObj.title,
+          `(${sectionObj.paragraphs?.length} paragraphs)`);
+      }
 
       if (sectionObj && sectionObj.paragraphs) {
         // Build full section text and track paragraph offsets
@@ -228,132 +254,172 @@ export default function App() {
 
   // Perform text matching (debounced)
   // Stickiness threshold: require this much higher score to switch to different document/paragraph
-  const SWITCH_THRESHOLD = 0.15;
+  const SWITCH_THRESHOLD = 0.15;  // require meaningful score gain to switch to different section/document
 
   const performTextMatch = useCallback(
     debounce(async (words) => {
-      // Log summary: first 5 words ... last 5 words
-      const wordsSummary = words.length <= 12
-        ? words.join(' ')
-        : words.slice(0, 5).join(' ') + ' ... ' + words.slice(-5).join(' ');
-      console.log('[MATCH] performTextMatch called with', words.length, 'words:', wordsSummary);
-      if (!searchIndexRef.current) {
-        console.log('[MATCH] No search index loaded');
-        return;
-      }
-      if (words.length < 3) {
-        console.log('[MATCH] Not enough words:', words.length);
-        return;
-      }
-
-      const match = findBestMatch(words, searchIndexRef.current, matchContextRef.current);
-      console.log('[MATCH] findBestMatch result:', match ? `${match.docId} score=${match.score?.toFixed(2)}` : 'no match');
-
-      if (match) {
-        const ctx = matchContextRef.current;
-        // Check if we're in the same section (allow free movement within section)
-        const isSameSectionMatch = ctx.previousDocId === match.docId &&
-                                   ctx.previousSection === match.section;
-
-        // Apply stickiness: require higher score to switch to a different section/document
-        // Movement within the same section is allowed without penalty
-        if (!isSameSectionMatch && ctx.previousDocId) {
-          const scoreDiff = match.score - ctx.previousScore;
-          if (scoreDiff < SWITCH_THRESHOLD) {
-            console.log('[MATCH] Stickiness: staying in current section (score diff:', scoreDiff.toFixed(2), '< threshold:', SWITCH_THRESHOLD, ')');
-            return; // Don't switch - not confident enough
-          }
-          console.log('[MATCH] Switching to new section (score diff:', scoreDiff.toFixed(2), ')');
+      try {
+        // Log summary: first 5 words ... last 5 words
+        const wordsSummary = words.length <= 12
+          ? words.join(' ')
+          : words.slice(0, 5).join(' ') + ' ... ' + words.slice(-5).join(' ');
+        console.log('[MATCH] performTextMatch called with', words.length, 'words:', wordsSummary);
+        if (!searchIndexRef.current) {
+          console.log('[MATCH] No search index loaded');
+          return;
+        }
+        if (words.length < 3) {
+          console.log('[MATCH] Not enough words:', words.length);
+          return;
         }
 
-        console.log('[MATCH] Match found:', match.docId, match.section, 'paragraphNum:', match.paragraphNum, 'score:', match.score.toFixed(2));
-
-        // Check if we're in the same section (full section is now displayed)
-        const isSameSection = ctx.previousDocId === match.docId &&
-                              ctx.previousSection === match.section;
-
-        // Fetch full section content
-        setMatchState(prev => ({ ...prev, isLoading: true }));
-
-        const content = await fetchDocumentContent(match.docId, match.section, match.paragraphNum);
-
-        if (content) {
-          // Paragraph-based highlighting: highlight from first matched paragraph to current
-          const currentParagraphIndex = match.paragraphNum - 1; // paragraphNum is 1-indexed
-
-          // Check if this is a valid sequential progression
-          const isSameParagraph = isSameSection && ctx.currentParagraphNum === match.paragraphNum;
-          const isNextParagraph = isSameSection && match.paragraphNum === ctx.currentParagraphNum + 1;
-          const isValidProgression = isSameParagraph || isNextParagraph;
-
-          let firstParagraphIndex;
-          if (isValidProgression && ctx.firstParagraphNum !== null) {
-            // Valid progression: keep tracking from first matched paragraph
-            firstParagraphIndex = ctx.firstParagraphNum - 1;
-            console.log('[MATCH] Valid progression:', isSameParagraph ? 'same paragraph' : 'next paragraph');
-          } else {
-            // Non-sequential jump or new section: reset highlight to current paragraph
-            firstParagraphIndex = currentParagraphIndex;
-            if (isSameSection && !isValidProgression) {
-              console.log('[MATCH] Non-sequential jump from paragraph', ctx.currentParagraphNum, 'to', match.paragraphNum, '- resetting highlight');
-            }
-          }
-
-          // Calculate highlight start: beginning of first matched paragraph
-          const highlightStart = content.paragraphOffsets[firstParagraphIndex] || 0;
-
-          // Calculate highlight end: end of current paragraph
-          const nextParagraphOffset = content.paragraphOffsets[currentParagraphIndex + 1];
-          const highlightEnd = nextParagraphOffset !== undefined
-            ? nextParagraphOffset - 2  // Subtract 2 for '\n\n' separator
-            : content.text.length;
-
-          // Calculate current paragraph position for scrolling
-          const currentParagraphStart = content.paragraphOffsets[currentParagraphIndex] || 0;
-          const currentParagraphEnd = highlightEnd;
-
-          const highlightPosition = {
-            start: highlightStart,
-            end: highlightEnd,
-            currentStart: currentParagraphStart,  // For scrolling to current paragraph
-            currentEnd: currentParagraphEnd,
-            contextStart: 0,
-            contextEnd: content.text.length
-          };
-
-          console.log('[MATCH] Paragraph-based highlight: paragraphs', firstParagraphIndex + 1, 'to', currentParagraphIndex + 1,
-            '(chars', highlightStart, '-', highlightEnd, ')');
-
-          // Update match context for continuity
-          matchContextRef.current = {
-            previousDocId: match.docId,
-            previousParagraphNum: match.paragraphNum,
-            previousSection: match.section,
-            previousScore: match.score,
-            firstParagraphNum: firstParagraphIndex + 1,  // Store as 1-indexed
-            currentParagraphNum: match.paragraphNum
-          };
-
-          // Get metadata
-          const metadata = getDocumentMetadata(searchIndexRef.current, match.docId);
-
-          setMatchState({
-            isLoading: false,
-            matchedDocument: {
-              ...content,
-              title: metadata?.title || content.title,
-              author: metadata?.author || content.author,
-              url: metadata?.url || content.url
-            },
-            matchedContent: content.text,
-            highlightPosition,
-            confidence: match.score
+        // Temporal continuity: detect if last 2-3 matches show sequential progression
+        let prediction = null;
+        const history = matchContextRef.current.matchHistory || [];
+        if (history.length >= 2) {
+          // Check if last 2-3 entries form a valid sequence
+          const isSequential = history.every((entry, idx) => {
+            if (idx === 0) return true;
+            const prev = history[idx - 1];
+            // Same document, and paragraph stays same or increments by 1
+            return entry.docId === prev.docId &&
+                   (entry.paragraphNum === prev.paragraphNum ||
+                    entry.paragraphNum === prev.paragraphNum + 1);
           });
-        } else {
-          setMatchState(prev => ({ ...prev, isLoading: false }));
+
+          if (isSequential) {
+            const lastMatch = history[history.length - 1];
+            prediction = {
+              docId: lastMatch.docId,
+              paragraphNum: lastMatch.paragraphNum + 1  // Predict next paragraph
+            };
+            console.log('[MATCH] Temporal continuity detected: predicting',
+              prediction.docId, 'paragraph', prediction.paragraphNum);
+          }
         }
+
+        const match = findBestMatch(words, searchIndexRef.current, matchContextRef.current, prediction);
+        console.log('[MATCH] findBestMatch result:', match ? `${match.docId} score=${match.score?.toFixed(2)}` : 'no match');
+
+        if (match) {
+          const ctx = matchContextRef.current;
+          // Check if we're in the same section (allow free movement within section)
+          const isSameSectionMatch = ctx.previousDocId === match.docId &&
+                                     ctx.previousSection === match.section;
+
+          // Apply stickiness: require higher score to switch to a different section/document
+          // Movement within the same section is allowed without penalty
+          if (!isSameSectionMatch && ctx.previousDocId) {
+            const scoreDiff = match.score - ctx.previousScore;
+            if (scoreDiff < SWITCH_THRESHOLD) {
+              console.log('[MATCH] Stickiness: staying in current section (score diff:', scoreDiff.toFixed(2), ')');
+              return; // Don't switch - not confident enough
+            }
+            console.log('[MATCH] Moving to new section (score diff:', scoreDiff.toFixed(2), ')');
+          }
+
+          console.log('[MATCH] Match found:', match.docId, match.section, 'paragraphNum:', match.paragraphNum, 'score:', match.score.toFixed(2));
+
+          // Check if we're in the same section (full section is now displayed)
+          const isSameSection = ctx.previousDocId === match.docId &&
+                                ctx.previousSection === match.section;
+
+          // Fetch full section content
+          setMatchState(prev => ({ ...prev, isLoading: true }));
+
+          const content = await fetchDocumentContent(match.docId, match.section, match.paragraphNum);
+
+          if (content) {
+            // Paragraph-based highlighting: highlight from first matched paragraph to current
+            const currentParagraphIndex = match.paragraphNum - 1; // paragraphNum is 1-indexed
+
+            // Check if this is a valid sequential progression
+            const isSameParagraph = isSameSection && ctx.currentParagraphNum === match.paragraphNum;
+            const isNextParagraph = isSameSection && match.paragraphNum === ctx.currentParagraphNum + 1;
+            // Re-lock: switching to a better document but landing on same paragraph we already confirmed
+            const isRelock = !isSameSection && match.paragraphNum === ctx.currentParagraphNum;
+            const isValidProgression = isSameParagraph || isNextParagraph || isRelock;
+
+            let firstParagraphIndex;
+            if (isValidProgression && ctx.firstParagraphNum !== null) {
+              // Valid progression: keep tracking from first matched paragraph
+              firstParagraphIndex = ctx.firstParagraphNum - 1;
+              console.log('[MATCH] Valid progression:', isSameParagraph ? 'same paragraph' : isNextParagraph ? 'next paragraph' : 're-lock');
+            } else {
+              // Non-sequential jump or new section: reset highlight to current paragraph
+              firstParagraphIndex = currentParagraphIndex;
+              if (isSameSection && !isValidProgression) {
+                console.log('[MATCH] Non-sequential jump from paragraph', ctx.currentParagraphNum, 'to', match.paragraphNum, '- resetting highlight');
+              }
+            }
+
+            // Calculate highlight start: beginning of first matched paragraph
+            const highlightStart = content.paragraphOffsets[firstParagraphIndex] || 0;
+
+            // Calculate highlight end: end of current paragraph
+            const nextParagraphOffset = content.paragraphOffsets[currentParagraphIndex + 1];
+            const highlightEnd = nextParagraphOffset !== undefined
+              ? nextParagraphOffset - 2  // Subtract 2 for '\n\n' separator
+              : content.text.length;
+
+            // Calculate current paragraph position for scrolling
+            const currentParagraphStart = content.paragraphOffsets[currentParagraphIndex] || 0;
+            const currentParagraphEnd = highlightEnd;
+
+            const highlightPosition = {
+              start: highlightStart,
+              end: highlightEnd,
+              currentStart: currentParagraphStart,  // For scrolling to current paragraph
+              currentEnd: currentParagraphEnd,
+              contextStart: 0,
+              contextEnd: content.text.length
+            };
+
+            console.log('[MATCH] Paragraph-based highlight: paragraphs', firstParagraphIndex + 1, 'to', currentParagraphIndex + 1,
+              '(chars', highlightStart, '-', highlightEnd, ')');
+
+            // Update match history for temporal continuity (keep last 3)
+            const newHistoryEntry = {
+              docId: match.docId,
+              paragraphNum: match.paragraphNum,
+              section: match.section
+            };
+            const updatedHistory = [...(ctx.matchHistory || []), newHistoryEntry].slice(-3);
+
+            // Update match context for continuity
+            matchContextRef.current = {
+              previousDocId: match.docId,
+              previousParagraphNum: match.paragraphNum,
+              previousSection: match.section,
+              previousScore: match.score,
+              firstParagraphNum: firstParagraphIndex + 1,  // Store as 1-indexed
+              currentParagraphNum: match.paragraphNum,
+              matchHistory: updatedHistory
+            };
+
+            // Get metadata
+            const metadata = getDocumentMetadata(searchIndexRef.current, match.docId);
+
+            setMatchState({
+              isLoading: false,
+              matchedDocument: {
+                ...content,
+                title: metadata?.title || content.title,
+                author: metadata?.author || content.author,
+                url: metadata?.url || content.url
+              },
+              matchedContent: content.text,
+              highlightPosition,
+              confidence: match.score
+            });
+          } else {
+            setMatchState(prev => ({ ...prev, isLoading: false }));
+          }
+        }
+      } finally {
+        setIsMatching(false);
       }
-    }, 750),  // Debounce interval - slightly longer to reduce jumpiness
+    }, 250),  // Debounce interval - optimized for faster matching while maintaining stability
     [fetchDocumentContent]
   );
 
@@ -467,7 +533,8 @@ export default function App() {
         previousSection: null,
         previousScore: 0,
         firstParagraphNum: null,
-        currentParagraphNum: null
+        currentParagraphNum: null,
+        matchHistory: []
       };
       setMatchState({
         isLoading: false,
@@ -563,7 +630,7 @@ export default function App() {
                     super();
                     this.samples = [];
                     this.targetSampleRate = 16000;
-                    this.samplesPerChunk = this.targetSampleRate; // ~1 second
+                    this.samplesPerChunk = this.targetSampleRate / 2; // ~500ms
                   }
 
                   process(inputs, outputs, parameters) {
@@ -605,7 +672,7 @@ export default function App() {
               workletNodeRef.current = workletNode;
 
               // Handle messages from the worklet (PCM data ready to send)
-              // Maximum audio chunks to keep (~30 seconds at 1 chunk/second)
+              // Maximum audio chunks to keep (~15 seconds at 1 chunk per 500ms)
               const MAX_AUDIO_CHUNKS = 30;
 
               workletNode.port.onmessage = (event) => {
@@ -650,9 +717,9 @@ export default function App() {
 
             const resampleRatio = targetSampleRate / sourceSampleRate;
             let accumulatedSamples = [];
-            const samplesPerSecond = targetSampleRate;
+            const samplesPerSecond = targetSampleRate / 2;
 
-            // Maximum audio chunks to keep (~30 seconds at 1 chunk/second)
+            // Maximum audio chunks to keep (~15 seconds at 1 chunk per 500ms)
             const MAX_AUDIO_CHUNKS_FALLBACK = 30;
 
             scriptProcessor.onaudioprocess = (event) => {
@@ -869,12 +936,21 @@ export default function App() {
       </View>
 
       <View style={styles.transcriptionContainer}>
-        <Text style={styles.transcriptionLabel}>Transcription:</Text>
-        <ScrollView style={styles.transcriptionScrollView}>
-          <Text style={[styles.transcriptionText, !transcription && styles.placeholderText]}>
-            {transcription || 'Transcription will appear here when you start recording...'}
+        <TouchableOpacity
+          onPress={() => setIsTranscriptionExpanded(!isTranscriptionExpanded)}
+          style={styles.transcriptionHeader}
+        >
+          <Text style={styles.transcriptionLabel}>
+            {isTranscriptionExpanded ? '▼' : '▶'} Transcription
           </Text>
-        </ScrollView>
+        </TouchableOpacity>
+        {isTranscriptionExpanded && (
+          <ScrollView style={styles.transcriptionScrollView}>
+            <Text style={[styles.transcriptionText, !transcription && styles.placeholderText]}>
+              {transcription || 'Transcription will appear here when you start recording...'}
+            </Text>
+          </ScrollView>
+        )}
       </View>
 
       {Platform.OS === 'web' && (
@@ -884,6 +960,7 @@ export default function App() {
           highlightPosition={matchState.highlightPosition}
           isLoading={matchState.isLoading}
           confidence={matchState.confidence}
+          isMatching={isMatching}
         />
       )}
 
@@ -947,6 +1024,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  transcriptionHeader: {
+    width: '100%',
   },
   transcriptionLabel: {
     fontSize: 14,

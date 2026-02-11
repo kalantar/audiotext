@@ -30,7 +30,7 @@ const STOP_WORDS = new Set([
 /**
  * Calculate Levenshtein distance between two strings
  */
-function levenshteinDistance(str1, str2) {
+function levenshteinDistance(str1, str2, maxDistance = Infinity) {
   const m = str1.length;
   const n = str2.length;
 
@@ -39,24 +39,39 @@ function levenshteinDistance(str1, str2) {
   if (n === 0) return m;
   if (str1 === str2) return 0;
 
-  // Create matrix
-  const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+  // Early exit if length difference exceeds threshold
+  if (Math.abs(m - n) > maxDistance) return maxDistance + 1;
 
-  for (let i = 0; i <= m; i++) dp[i][0] = i;
-  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  // Use only two rows instead of full matrix for memory efficiency
+  let prevRow = Array(n + 1).fill(0);
+  let currRow = Array(n + 1).fill(0);
 
+  // Initialize first row
+  for (let j = 0; j <= n; j++) prevRow[j] = j;
+
+  // Fill matrix row by row
   for (let i = 1; i <= m; i++) {
+    currRow[0] = i;
+    let minInRow = i;  // Track minimum in current row
+
     for (let j = 1; j <= n; j++) {
       const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,      // deletion
-        dp[i][j - 1] + 1,      // insertion
-        dp[i - 1][j - 1] + cost // substitution
+      currRow[j] = Math.min(
+        prevRow[j] + 1,          // deletion
+        currRow[j - 1] + 1,      // insertion
+        prevRow[j - 1] + cost    // substitution
       );
+      minInRow = Math.min(minInRow, currRow[j]);
     }
+
+    // Early exit: if minimum in row exceeds threshold, no point continuing
+    if (minInRow > maxDistance) return maxDistance + 1;
+
+    // Swap rows
+    [prevRow, currRow] = [currRow, prevRow];
   }
 
-  return dp[m][n];
+  return prevRow[n];
 }
 
 /**
@@ -68,7 +83,7 @@ function wordsAreSimilar(word1, word2) {
 
   // For short words, require exact match or distance of 1
   const maxDist = word1.length <= 4 ? 1 : MAX_LEVENSHTEIN_DISTANCE;
-  return levenshteinDistance(word1, word2) <= maxDist;
+  return levenshteinDistance(word1, word2, maxDist) <= maxDist;
 }
 
 /**
@@ -168,7 +183,7 @@ function fuzzyNgramOverlap(searchNgrams, docNgrams) {
  * @param {Object} context - Previous match context for continuity
  * @returns {Object|null} - Best match with score, or null if no good match
  */
-export function findBestMatch(words, searchIndex, context = {}) {
+export function findBestMatch(words, searchIndex, context = {}, prediction = null) {
   if (!searchIndex || !searchIndex.documents || words.length < 3) {
     return null;
   }
@@ -187,18 +202,36 @@ export function findBestMatch(words, searchIndex, context = {}) {
     // Calculate fuzzy n-gram overlap score
     const ngramScore = fuzzyNgramOverlap(searchNgrams, doc.ngrams);
 
-    // Continuity bonus: boost score if same document as previous match
+    // Weighted base score - favor token overlap for fuzzy matching
+    const baseScore = (tokenScore * 0.5) + (ngramScore * 0.3);
+
+    // Continuity bonus: small boost for same document, but only if base match is decent
     let continuityBonus = 0;
-    if (context.previousDocId === doc.docId) {
-      continuityBonus = 0.1;
-      // Extra bonus if sequential paragraph
+    if (context.previousDocId === doc.docId && baseScore >= 0.12) {
+      // Multiplicative bonus instead of fixed addition
+      continuityBonus = baseScore * 0.15; // 15% boost to base score
+
+      // Extra boost if sequential paragraph
       if (context.previousParagraphNum && doc.paragraphNum === context.previousParagraphNum + 1) {
-        continuityBonus = 0.2;
+        continuityBonus = baseScore * 0.25; // 25% boost for sequential
       }
     }
 
-    // Weighted final score - favor token overlap for fuzzy matching
-    const score = (tokenScore * 0.5) + (ngramScore * 0.3) + continuityBonus;
+    // Temporal continuity bonus: boost nearby paragraphs if we have a prediction
+    let neighborhoodBonus = 0;
+    if (prediction && doc.docId === prediction.docId) {
+      const distance = Math.abs(doc.paragraphNum - prediction.paragraphNum);
+      if (distance <= 3) {
+        neighborhoodBonus = 0.10;
+        // Stronger bonus for exact predicted paragraph
+        if (doc.paragraphNum === prediction.paragraphNum) {
+          neighborhoodBonus = 0.15;
+        }
+      }
+    }
+
+    // Final score with continuity bonus
+    const score = baseScore + continuityBonus + neighborhoodBonus;
 
     // Track top matches for debugging
     if (debugTopMatches.length < 3 || score > debugTopMatches[debugTopMatches.length - 1]?.score) {
@@ -214,7 +247,8 @@ export function findBestMatch(words, searchIndex, context = {}) {
         score,
         tokenScore,
         ngramScore,
-        continuityBonus
+        continuityBonus,
+        neighborhoodBonus
       };
     }
   }
