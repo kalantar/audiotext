@@ -1,12 +1,13 @@
 /**
- * Test Case: Paragraph 67 Matching
+ * Test Case: Gems Divine Mysteries "67 In this connection..." Matching
  *
  * Real-world test case from user transcription that should match
- * gems-divine-mysteries paragraph 67, but was incorrectly matching
- * call-divine-beloved paragraph 2.
+ * gems-divine-mysteries paragraph 69 (labeled "67" in original document),
+ * but was incorrectly matching call-divine-beloved paragraph 2 due to
+ * early lock-in on short phrase "in this connection".
  *
  * Run with: npm start, then check console for test results
- * Or create a web test page to run in browser
+ * Or run: node tests/run-tests.mjs paragraph-67-test.js
  */
 
 // This test is designed to be run in the browser alongside the app
@@ -17,10 +18,11 @@ export const paragraph67TestCase = {
   transcribedText: `in this connection we were related to me that which was revealed of old concerning life that perchance it may turn the away from the promptings of south looper from the narrow confines of a prison in is gloomy plane an aide the to become of them that are guided or right in the darkness of this world he say if and he barely speak the truth shut the dead whom we have quickened and for whom we have ordained a light whereby he may walk amongst men be like him was likenesses in the darkness once he will not come for`,
 
   // Expected correct match
+  // Note: paragraphNum 69 in search index = paragraph "67" in original document
   expectedMatch: {
     docId: 'gems-divine-mysteries',
     section: 'Gems of Divine Mysteries',
-    paragraphNum: 67
+    paragraphNum: 69
   },
 
   // Actual paragraph 67 text for reference
@@ -31,8 +33,8 @@ export const paragraph67TestCase = {
   progressiveStages: [
     { words: 'in this connection', wordCount: 3, description: 'Too short (< 8 words), should return no match' },
     { words: 'in this connection we were related', wordCount: 6, description: 'Still too short (< 8 words)' },
-    { words: 'in this connection we were related to me that which was revealed of old', wordCount: 14, description: 'Should match paragraph 67 (14 words)' },
-    { words: 'in this connection we were related to me that which was revealed of old concerning life that perchance it may turn the away from the promptings', wordCount: 28, description: 'Should clearly match paragraph 67 (28 words)' }
+    { words: 'in this connection we were related to me that which was revealed of old', wordCount: 14, description: 'Should match paragraph 69 (14 words)' },
+    { words: 'in this connection we were related to me that which was revealed of old concerning life that perchance it may turn the away from the promptings', wordCount: 28, description: 'Should clearly match paragraph 69 (28 words)' }
   ],
 
   // Log breakdown from actual run (for analysis)
