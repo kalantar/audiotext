@@ -7,7 +7,7 @@
  * - Uses browser scrolling for navigation
  */
 
-import React, { useCallback, useRef, useEffect } from 'react';
+import React, { useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -19,8 +19,9 @@ import {
 
 /**
  * Document Header Component
+ * Memoized to prevent unnecessary re-renders when props haven't changed
  */
-const DocumentHeader = ({ title, author, url, confidence, isMatching }) => {
+const DocumentHeader = React.memo(({ title, author, url, confidence, isMatching }) => {
   const handleOpenSource = useCallback(() => {
     if (url) {
       Linking.openURL(url).catch(err => {
@@ -50,7 +51,14 @@ const DocumentHeader = ({ title, author, url, confidence, isMatching }) => {
       )}
     </View>
   );
-};
+}, (prevProps, nextProps) => {
+  // Custom comparison: only re-render if these props actually changed
+  return prevProps.title === nextProps.title &&
+         prevProps.author === nextProps.author &&
+         prevProps.url === nextProps.url &&
+         prevProps.confidence === nextProps.confidence &&
+         prevProps.isMatching === nextProps.isMatching;
+});
 
 /**
  * Main MatchedTextWidget Component
@@ -92,6 +100,31 @@ const MatchedTextWidget = ({
     }
   }, [highlightPosition]);
 
+  // Extract text portions for display - show full document with highlight
+  // Memoize to avoid expensive substring operations on every render
+  // MUST be before early returns to comply with Rules of Hooks
+  const textSegments = useMemo(() => {
+    if (!fullContent) {
+      return { before: '', highlighted: '', after: '' };
+    }
+
+    if (!highlightPosition) {
+      return {
+        before: '',
+        highlighted: fullContent.substring(0, 100),
+        after: fullContent.substring(100)
+      };
+    }
+
+    return {
+      before: fullContent.substring(0, highlightPosition.start),
+      highlighted: fullContent.substring(highlightPosition.start, highlightPosition.end),
+      after: fullContent.substring(highlightPosition.end)
+    };
+  }, [fullContent, highlightPosition]);
+
+  const { before: beforeText, highlighted: highlightedText, after: afterText } = textSegments;
+
   // Loading state
   if (isLoading && !matchedDocument) {
     return (
@@ -118,17 +151,6 @@ const MatchedTextWidget = ({
       </View>
     );
   }
-
-  // Extract text portions for display - show full document with highlight
-  const beforeText = highlightPosition
-    ? fullContent.substring(0, highlightPosition.start)
-    : '';
-  const highlightedText = highlightPosition
-    ? fullContent.substring(highlightPosition.start, highlightPosition.end)
-    : fullContent.substring(0, 100);
-  const afterText = highlightPosition
-    ? fullContent.substring(highlightPosition.end)
-    : fullContent.substring(100);
 
   return (
     <View style={styles.widgetContainer}>

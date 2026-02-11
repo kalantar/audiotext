@@ -30,7 +30,7 @@ const STOP_WORDS = new Set([
 /**
  * Calculate Levenshtein distance between two strings
  */
-function levenshteinDistance(str1, str2) {
+function levenshteinDistance(str1, str2, maxDistance = Infinity) {
   const m = str1.length;
   const n = str2.length;
 
@@ -39,24 +39,39 @@ function levenshteinDistance(str1, str2) {
   if (n === 0) return m;
   if (str1 === str2) return 0;
 
-  // Create matrix
-  const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+  // Early exit if length difference exceeds threshold
+  if (Math.abs(m - n) > maxDistance) return maxDistance + 1;
 
-  for (let i = 0; i <= m; i++) dp[i][0] = i;
-  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  // Use only two rows instead of full matrix for memory efficiency
+  let prevRow = Array(n + 1).fill(0);
+  let currRow = Array(n + 1).fill(0);
 
+  // Initialize first row
+  for (let j = 0; j <= n; j++) prevRow[j] = j;
+
+  // Fill matrix row by row
   for (let i = 1; i <= m; i++) {
+    currRow[0] = i;
+    let minInRow = i;  // Track minimum in current row
+
     for (let j = 1; j <= n; j++) {
       const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,      // deletion
-        dp[i][j - 1] + 1,      // insertion
-        dp[i - 1][j - 1] + cost // substitution
+      currRow[j] = Math.min(
+        prevRow[j] + 1,          // deletion
+        currRow[j - 1] + 1,      // insertion
+        prevRow[j - 1] + cost    // substitution
       );
+      minInRow = Math.min(minInRow, currRow[j]);
     }
+
+    // Early exit: if minimum in row exceeds threshold, no point continuing
+    if (minInRow > maxDistance) return maxDistance + 1;
+
+    // Swap rows
+    [prevRow, currRow] = [currRow, prevRow];
   }
 
-  return dp[m][n];
+  return prevRow[n];
 }
 
 /**
@@ -68,7 +83,7 @@ function wordsAreSimilar(word1, word2) {
 
   // For short words, require exact match or distance of 1
   const maxDist = word1.length <= 4 ? 1 : MAX_LEVENSHTEIN_DISTANCE;
-  return levenshteinDistance(word1, word2) <= maxDist;
+  return levenshteinDistance(word1, word2, maxDist) <= maxDist;
 }
 
 /**

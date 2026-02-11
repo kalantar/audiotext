@@ -419,7 +419,7 @@ export default function App() {
       } finally {
         setIsMatching(false);
       }
-    }, 750),  // Debounce interval - slightly longer to reduce jumpiness
+    }, 250),  // Debounce interval - optimized for faster matching while maintaining stability
     [fetchDocumentContent]
   );
 
