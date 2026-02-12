@@ -961,8 +961,6 @@ export default function App() {
   return (
     <PaperProvider theme={customTheme}>
       <View style={styles.container}>
-        <Text style={styles.title}>FollowAlong Audio Recorder</Text>
-
         <FAB
           icon={isRecording ? "stop" : "microphone"}
           label={isRecording ? "Stop" : "Record"}
@@ -1025,17 +1023,10 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f5f5f0', // Subtle warm background for reading comfort
     alignItems: 'center',
     justifyContent: 'flex-start',
     padding: 20,
-    paddingTop: 60,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: 40,
-    color: '#333',
   },
   fab: {
     position: 'absolute',
@@ -1055,7 +1046,7 @@ const styles = StyleSheet.create({
     margin: 0,
   },
   readingSurface: {
-    flex: 1,  // Fill available space after title/buttons
+    flex: 1,  // Fill available space for reading content
     width: '90%',
     maxWidth: 900,
     alignSelf: 'center',
