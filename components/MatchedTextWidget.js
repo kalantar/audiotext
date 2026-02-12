@@ -21,6 +21,7 @@ import {
   Text as PaperText,
   Divider,
   ActivityIndicator,
+  IconButton,
   useTheme
 } from 'react-native-paper';
 
@@ -39,22 +40,41 @@ const DocumentHeader = React.memo(({ title, author, url, confidence, isMatching 
 
   return (
     <View style={styles.headerContainer}>
-      <View style={styles.headerTextContainer}>
-        <Text style={styles.titleText} numberOfLines={1}>{title || 'Unknown Text'}</Text>
-        <Text style={styles.authorText}>{author || 'Unknown Author'}</Text>
+      <View style={styles.titleRow}>
+        <PaperText variant="titleLarge" style={styles.titleText}>
+          {title || 'Unknown Text'}
+        </PaperText>
+        {url && (
+          <IconButton
+            icon="open-in-new"
+            size={20}
+            iconColor="#666"
+            onPress={handleOpenSource}
+            style={styles.sourceIconButton}
+          />
+        )}
       </View>
+
+      {author && (
+        <PaperText variant="bodyMedium" style={styles.authorText}>
+          {author}
+        </PaperText>
+      )}
+
       {confidence !== undefined && (
         <View style={styles.confidenceContainer}>
-          <View style={[styles.confidenceBar, { width: `${Math.min(100, confidence * 100)}%` }]} />
+          <PaperText variant="labelSmall" style={styles.confidenceLabel}>
+            Match: {Math.round(confidence * 100)}%
+          </PaperText>
+          <View style={styles.confidenceBar}>
+            <View
+              style={[
+                styles.confidenceFill,
+                { width: `${confidence * 100}%` }
+              ]}
+            />
+          </View>
         </View>
-      )}
-      {isMatching && (
-        <Text style={styles.searchingText}>...</Text>
-      )}
-      {url && (
-        <TouchableOpacity onPress={handleOpenSource} style={styles.sourceLink}>
-          <Text style={styles.sourceLinkText}>Source</Text>
-        </TouchableOpacity>
       )}
     </View>
   );
@@ -216,52 +236,43 @@ const styles = StyleSheet.create({
     backgroundColor: '#e0d5c7',
   },
   headerContainer: {
+    marginBottom: 12,
+    paddingHorizontal: 16,
+  },
+  titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    paddingBottom: 10,
-    paddingHorizontal: 16,
-    marginBottom: 10,
-  },
-  headerTextContainer: {
-    flex: 1,
+    marginBottom: 4,
   },
   titleText: {
-    fontSize: 16,
+    color: '#2c2c2c',
     fontWeight: '600',
-    color: '#333',
+  },
+  sourceIconButton: {
+    margin: 0,
+    marginLeft: -4,
+    marginTop: -2,
   },
   authorText: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
+    color: '#6b4423',
+    marginBottom: 8,
   },
   confidenceContainer: {
-    width: 50,
-    height: 4,
-    backgroundColor: '#eee',
-    borderRadius: 2,
-    marginHorizontal: 10,
-    overflow: 'hidden',
+    marginTop: 8,
+  },
+  confidenceLabel: {
+    color: '#666',
+    marginBottom: 4,
   },
   confidenceBar: {
-    height: '100%',
-    backgroundColor: '#34C759',
+    height: 4,
+    backgroundColor: '#e0e0e0',
     borderRadius: 2,
+    overflow: 'hidden',
   },
-  searchingText: {
-    fontSize: 11,
-    color: '#999',
-    marginHorizontal: 4,
-  },
-  sourceLink: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  sourceLinkText: {
-    fontSize: 12,
-    color: '#007AFF',
+  confidenceFill: {
+    height: '100%',
+    backgroundColor: '#9d5c0d',
   },
   textScrollView: {
     flex: 1,
