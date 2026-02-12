@@ -16,7 +16,13 @@ import {
   TouchableOpacity,
   Linking
 } from 'react-native';
-import { useTheme } from 'react-native-paper';
+import {
+  Card,
+  Text as PaperText,
+  Divider,
+  ActivityIndicator,
+  useTheme
+} from 'react-native-paper';
 
 /**
  * Document Header Component
@@ -130,67 +136,84 @@ const MatchedTextWidget = ({
   // Loading state
   if (isLoading && !matchedDocument) {
     return (
-      <View style={[styles.widgetContainer, { backgroundColor: theme.colors.surface }]}>
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading text...</Text>
-        </View>
-      </View>
+      <Card style={styles.paperCard} elevation={1}>
+        <Card.Content style={styles.emptyState}>
+          <ActivityIndicator size="large" />
+          <PaperText variant="bodyMedium" style={styles.emptyText}>
+            Loading text...
+          </PaperText>
+        </Card.Content>
+      </Card>
     );
   }
 
   // No match state
   if (!matchedDocument || !fullContent) {
     return (
-      <View style={[styles.widgetContainer, { backgroundColor: theme.colors.surface }]}>
-        <View style={styles.noMatchContainer}>
-          <Text style={styles.noMatchText}>
-            {isMatching ? 'Searching...' : 'Speak to find matching text...'}
-          </Text>
-          <Text style={styles.noMatchHint}>
-            The app will search for matching passages as you speak.
-          </Text>
-        </View>
-      </View>
+      <Card style={styles.paperCard} elevation={1}>
+        <Card.Content style={styles.emptyState}>
+          <PaperText variant="headlineSmall" style={styles.emptyTitle}>
+            {isMatching ? 'Searching...' : 'Ready to listen'}
+          </PaperText>
+          <PaperText variant="bodyMedium" style={styles.emptyHint}>
+            Press the microphone button and speak to find matching passages
+          </PaperText>
+        </Card.Content>
+      </Card>
     );
   }
 
   return (
-    <View style={[styles.widgetContainer, { backgroundColor: theme.colors.surface }]}>
-      <DocumentHeader
-        title={matchedDocument.title}
-        author={matchedDocument.author}
-        url={matchedDocument.url}
-        confidence={confidence}
-        isMatching={isMatching}
-      />
+    <Card style={styles.paperCard} elevation={2}>
+      <Card.Content style={styles.cardContent}>
+        <DocumentHeader
+          title={matchedDocument.title}
+          author={matchedDocument.author}
+          url={matchedDocument.url}
+          confidence={confidence}
+          isMatching={isMatching}
+        />
 
-      <ScrollView ref={scrollViewRef} style={styles.textScrollView}>
-        <Text style={styles.verseLabel}>
+        <Divider style={styles.divider} />
+
+        <PaperText variant="labelLarge" style={styles.verseLabel}>
           {matchedDocument.section && `${matchedDocument.section} `}
           {matchedDocument.verseNum && `#${matchedDocument.verseNum}`}
-        </Text>
+        </PaperText>
 
-        <Text style={styles.textContent}>
-          {beforeText}
-          <Text
-            style={styles.highlightedText}
-            onLayout={handleHighlightLayout}
-          >
-            {highlightedText}
+        <ScrollView ref={scrollViewRef} style={styles.textScrollView} contentContainerStyle={styles.scrollContent}>
+          <Text style={styles.textContent}>
+            {beforeText}
+            <Text
+              style={styles.highlightedText}
+              onLayout={handleHighlightLayout}
+            >
+              {highlightedText}
+            </Text>
+            {afterText}
           </Text>
-          {afterText}
-        </Text>
-      </ScrollView>
-    </View>
+        </ScrollView>
+      </Card.Content>
+    </Card>
   );
 };
 
 const styles = StyleSheet.create({
-  widgetContainer: {
-    height: '100%',  // Fill parent's fixed height without forcing parent to grow
-    // width removed - let it use full available space
-    paddingTop: 10,
-    padding: 20,
+  paperCard: {
+    flex: 1,
+    margin: 16,
+    backgroundColor: '#fdfaf5', // Off-white paper
+    borderRadius: 8,
+    overflow: 'hidden', // Prevent content from escaping card boundaries
+  },
+  cardContent: {
+    flex: 1,
+    padding: 0, // Card.Content has default padding we need to control
+  },
+  divider: {
+    marginVertical: 12,
+    marginHorizontal: 16,
+    backgroundColor: '#e0d5c7',
   },
   headerContainer: {
     flexDirection: 'row',
@@ -198,6 +221,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
     paddingBottom: 10,
+    paddingHorizontal: 16,
     marginBottom: 10,
   },
   headerTextContainer: {
@@ -241,56 +265,54 @@ const styles = StyleSheet.create({
   },
   textScrollView: {
     flex: 1,
+    paddingHorizontal: 16,
   },
-  scrollMarker: {
-    height: 0,
-    width: 0,
+  scrollContent: {
+    paddingBottom: 20,
   },
   verseLabel: {
-    fontSize: 12,
-    color: '#999',
+    color: '#6b4423',
     marginBottom: 8,
-    fontStyle: 'italic',
+    paddingHorizontal: 16,
+    fontWeight: '600',
   },
   textContent: {
     fontFamily: 'Georgia',
     fontSize: 18,
     lineHeight: 28,
-    color: '#333',
+    color: '#2c2c2c',
+    marginBottom: 4,
   },
   contextText: {
     fontSize: 14,
     color: '#888',
   },
   highlightedText: {
-    backgroundColor: '#FFE082',  // Yellow marker color
+    backgroundColor: '#fff59d',  // Yellow highlighter color
+    paddingVertical: 2,
+    paddingHorizontal: 1,
     // No fontSize change - inherit from textContent (18px)
     // No fontWeight change - keep normal weight
-    // No color change - inherit from textContent (#333)
+    // No color change - inherit from textContent
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  emptyState: {
     alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 14,
-    color: '#666',
-  },
-  noMatchContainer: {
-    flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
+    paddingVertical: 60,
+    paddingHorizontal: 20,
   },
-  noMatchText: {
-    fontSize: 16,
-    color: '#666',
+  emptyTitle: {
+    color: '#6b4423',
+    marginBottom: 8,
     textAlign: 'center',
   },
-  noMatchHint: {
-    fontSize: 12,
-    color: '#999',
+  emptyText: {
+    color: '#8d8d8d',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  emptyHint: {
+    color: '#8d8d8d',
     textAlign: 'center',
     marginTop: 8,
   },
