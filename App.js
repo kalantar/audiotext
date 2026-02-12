@@ -982,14 +982,16 @@ export default function App() {
         />
 
         {Platform.OS === 'web' && (
-          <MatchedTextWidget
-            matchedDocument={matchState.matchedDocument}
-            fullContent={matchState.matchedContent}
-            highlightPosition={matchState.highlightPosition}
-            isLoading={matchState.isLoading}
-            confidence={matchState.confidence}
-            isMatching={isMatching}
-          />
+          <View style={styles.readingSurface}>
+            <MatchedTextWidget
+              matchedDocument={matchState.matchedDocument}
+              fullContent={matchState.matchedContent}
+              highlightPosition={matchState.highlightPosition}
+              isLoading={matchState.isLoading}
+              confidence={matchState.confidence}
+              isMatching={isMatching}
+            />
+          </View>
         )}
 
         <StatusBar style="auto" />
@@ -1051,6 +1053,23 @@ const styles = StyleSheet.create({
     top: 10,
     right: 10,
     margin: 0,
+  },
+  readingSurface: {
+    flex: 1,  // Fill available space after title/buttons
+    width: '90%',
+    maxWidth: 900,
+    alignSelf: 'center',
+    backgroundColor: '#fdfaf5',  // Cream paper color from theme
+    borderRadius: 8,
+    marginHorizontal: 20,
+    marginVertical: 10,
+    overflow: 'hidden',
+    // Manual elevation/shadow styling
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 2,  // Android
   },
   debugModal: {
     backgroundColor: 'white',

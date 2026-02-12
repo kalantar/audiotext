@@ -111,6 +111,24 @@ MatchedTextWidget (display with highlighting)
 - Use `useRef` for values that persist across renders but don't trigger re-renders
 - Keep state updates minimal and batch when possible
 
+## UI Design Principles
+
+### Reading Experience
+- **Visual Consistency**: All body text must be uniform (size, weight, color, font). Visual hierarchy only where semantically meaningful.
+- **Marker-Style Highlighting**: Highlighting adds background color ONLY. Text properties remain unchanged. Should look like a physical highlighter marker.
+- **Paper-Like Interface**: Reading surface resembles physical paper. Serif typography for print-like comfort. Fixed viewport creates "page" metaphor.
+
+### Layout & Spacing
+- **Consistent Spacing**: Paragraph spacing uniform throughout. No special spacing around interactive elements.
+- **Layout Stability**: Reading container maintains consistent size regardless of content state. No layout jumps when content loads/changes.
+- **Inline Content Flow**: Interactive elements (highlights) inline with text flow, not separate blocks.
+
+### Interaction
+- **Auto-Focus on Content**: Matched/highlighted content automatically scrolls into view.
+- **Responsive Design**: UI adapts to device screen size while maintaining comfortable reading experience. Maximum width constraint for readability.
+
+**Apply these principles when making UI changes** - even if specific colors/fonts/sizes change, these requirements must be maintained.
+
 ## Development Notes
 
 - The app name is "followalong" (in package.json) but the repo is "audiotext"

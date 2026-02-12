@@ -16,6 +16,7 @@ import {
   TouchableOpacity,
   Linking
 } from 'react-native';
+import { useTheme } from 'react-native-paper';
 
 /**
  * Document Header Component
@@ -71,6 +72,7 @@ const MatchedTextWidget = ({
   confidence,
   isMatching
 }) => {
+  const theme = useTheme();
   const scrollViewRef = useRef(null);
   const highlightYPosition = useRef(null);
 
@@ -128,7 +130,7 @@ const MatchedTextWidget = ({
   // Loading state
   if (isLoading && !matchedDocument) {
     return (
-      <View style={styles.widgetContainer}>
+      <View style={[styles.widgetContainer, { backgroundColor: theme.colors.surface }]}>
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading text...</Text>
         </View>
@@ -139,7 +141,7 @@ const MatchedTextWidget = ({
   // No match state
   if (!matchedDocument || !fullContent) {
     return (
-      <View style={styles.widgetContainer}>
+      <View style={[styles.widgetContainer, { backgroundColor: theme.colors.surface }]}>
         <View style={styles.noMatchContainer}>
           <Text style={styles.noMatchText}>
             {isMatching ? 'Searching...' : 'Speak to find matching text...'}
@@ -153,7 +155,7 @@ const MatchedTextWidget = ({
   }
 
   return (
-    <View style={styles.widgetContainer}>
+    <View style={[styles.widgetContainer, { backgroundColor: theme.colors.surface }]}>
       <DocumentHeader
         title={matchedDocument.title}
         author={matchedDocument.author}
@@ -168,27 +170,16 @@ const MatchedTextWidget = ({
           {matchedDocument.verseNum && `#${matchedDocument.verseNum}`}
         </Text>
 
-        {beforeText && (
-          <Text style={[styles.textContent, styles.contextText]}>
-            {beforeText}
-          </Text>
-        )}
-
-        {highlightPosition && (
-          <View onLayout={handleHighlightLayout} style={styles.scrollMarker} />
-        )}
-
-        <View collapsable={false}>
-          <Text style={[styles.textContent, styles.highlightedText]}>
+        <Text style={styles.textContent}>
+          {beforeText}
+          <Text
+            style={styles.highlightedText}
+            onLayout={handleHighlightLayout}
+          >
             {highlightedText}
           </Text>
-        </View>
-
-        {afterText && (
-          <Text style={[styles.textContent, styles.contextText]}>
-            {afterText}
-          </Text>
-        )}
+          {afterText}
+        </Text>
       </ScrollView>
     </View>
   );
@@ -196,9 +187,10 @@ const MatchedTextWidget = ({
 
 const styles = StyleSheet.create({
   widgetContainer: {
-    flex: 1,
-    width: '80%',
+    height: '100%',  // Fill parent's fixed height without forcing parent to grow
+    // width removed - let it use full available space
     paddingTop: 10,
+    padding: 20,
   },
   headerContainer: {
     flexDirection: 'row',
@@ -261,17 +253,20 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   textContent: {
-    lineHeight: 24,
+    fontFamily: 'Georgia',
+    fontSize: 18,
+    lineHeight: 28,
+    color: '#333',
   },
   contextText: {
     fontSize: 14,
     color: '#888',
   },
   highlightedText: {
-    fontSize: 15,
-    color: '#000',
-    backgroundColor: '#FFE082',
-    fontWeight: '500',
+    backgroundColor: '#FFE082',  // Yellow marker color
+    // No fontSize change - inherit from textContent (18px)
+    // No fontWeight change - keep normal weight
+    // No color change - inherit from textContent (#333)
   },
   loadingContainer: {
     flex: 1,
