@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView, Platform } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView, Platform, SafeAreaView, Dimensions } from 'react-native';
 import { Audio } from 'expo-av';
 import { Provider as PaperProvider, MD3LightTheme, FAB, IconButton, Portal, Modal } from 'react-native-paper';
 import MatchedTextWidget from './components/MatchedTextWidget';
 import { findBestMatch, findHighlightPosition, getDocumentMetadata, debounce } from './utils/textMatcher';
+import textAssets from './assets/textAssets';
 
 // Development-only logging helper
 // __DEV__ is a built-in React Native constant that is automatically:
@@ -26,7 +27,7 @@ const getLastWords = (text, wordCount) => {
 };
 
 // WebSocket server configuration
-const WS_SERVER_URL = 'ws://localhost:2700';
+const WS_SERVER_URL = 'ws://192.168.1.198:2700';
 
 // Number of recent words to use for text matching
 // Large enough for noisy/KJ-English transcription signal, small enough to track progression
@@ -189,24 +190,29 @@ export default function App() {
     const loadSearchIndex = async () => {
       console.log('[MATCH] Loading search index...');
       try {
-        // Try to load the search index from public folder
-        const response = await fetch('/search-index.json');
-        console.log('[MATCH] Fetch response:', response.status, response.ok);
-        if (response.ok) {
-          const index = await response.json();
-          searchIndexRef.current = index;
-          console.log('[MATCH] Search index loaded:', index.documents?.length, 'entries');
+        if (Platform.OS === 'web') {
+          // Web: load from public folder
+          const response = await fetch('/search-index.json');
+          console.log('[MATCH] Fetch response:', response.status, response.ok);
+          if (response.ok) {
+            const index = await response.json();
+            searchIndexRef.current = index;
+            console.log('[MATCH] Search index loaded:', index.documents?.length, 'entries');
+          } else {
+            console.log('[MATCH] Search index not found - text matching disabled');
+          }
         } else {
-          console.log('[MATCH] Search index not found - text matching disabled');
+          // Native (iOS/Android): require from assets folder
+          const index = require('./assets/search-index.json');
+          searchIndexRef.current = index;
+          console.log('[MATCH] Search index loaded (native):', index.documents?.length, 'entries');
         }
       } catch (err) {
         console.log('[MATCH] Failed to load search index:', err.message);
       }
     };
 
-    if (Platform.OS === 'web') {
-      loadSearchIndex();
-    }
+    loadSearchIndex();
   }, []);
 
   // Fetch full section content when a match is found
@@ -221,14 +227,25 @@ export default function App() {
 
     try {
       console.log('[FETCH] Fetching document:', docId, 'section:', section);
-      // Fetch full document
-      const response = await fetch(`/texts/${docId}.json`);
-      if (!response.ok) {
-        console.log('[FETCH] Document not found:', docId, response.status);
-        throw new Error(`Document not found: ${docId}`);
+
+      let doc;
+      if (Platform.OS === 'web') {
+        // Web: fetch from public folder
+        const response = await fetch(`/texts/${docId}.json`);
+        if (!response.ok) {
+          console.log('[FETCH] Document not found:', docId, response.status);
+          throw new Error(`Document not found: ${docId}`);
+        }
+        doc = await response.json();
+      } else {
+        // Native (iOS/Android): load from bundled assets
+        doc = textAssets[docId];
+        if (!doc) {
+          console.log('[FETCH] Document not found in assets:', docId);
+          throw new Error(`Document not found: ${docId}`);
+        }
       }
 
-      const doc = await response.json();
       console.log('[FETCH] Document loaded, sections:', doc.sections?.length);
 
       // Find the section by title (sections is an array, not an object)
@@ -960,7 +977,8 @@ export default function App() {
 
   return (
     <PaperProvider theme={customTheme}>
-      <View style={styles.container}>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.container}>
         <FAB
           icon={isRecording ? "stop" : "microphone"}
           label={isRecording ? "Stop" : "Record"}
@@ -979,21 +997,20 @@ export default function App() {
           style={styles.debugButton}
         />
 
-        {Platform.OS === 'web' && (
-          <View style={styles.readingSurface}>
-            <MatchedTextWidget
-              matchedDocument={matchState.matchedDocument}
-              fullContent={matchState.matchedContent}
-              highlightPosition={matchState.highlightPosition}
-              isLoading={matchState.isLoading}
-              confidence={matchState.confidence}
-              isMatching={isMatching}
-            />
-          </View>
-        )}
+        <View style={styles.readingSurface}>
+          <MatchedTextWidget
+            matchedDocument={matchState.matchedDocument}
+            fullContent={matchState.matchedContent}
+            highlightPosition={matchState.highlightPosition}
+            isLoading={matchState.isLoading}
+            confidence={matchState.confidence}
+            isMatching={isMatching}
+          />
+        </View>
 
         <StatusBar style="auto" />
       </View>
+      </SafeAreaView>
 
       <Portal>
         <Modal
@@ -1021,6 +1038,10 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#f5f5f0', // Match container background
+  },
   container: {
     flex: 1,
     backgroundColor: '#f5f5f0', // Subtle warm background for reading comfort
@@ -1030,11 +1051,12 @@ const styles = StyleSheet.create({
   },
   fab: {
     position: 'absolute',
-    alignSelf: 'center',  // KEEP THIS - bottom-center positioning
-    bottom: 16,
+    alignSelf: 'center',  // Center horizontally
+    bottom: 20,
     margin: 16,
     backgroundColor: '#9d5c0d', // Warm brown primary color
     zIndex: 1000,
+    elevation: 5,  // Android elevation
   },
   fabRecording: {
     backgroundColor: '#d32f2f', // Red background when recording
@@ -1047,20 +1069,13 @@ const styles = StyleSheet.create({
   },
   readingSurface: {
     flex: 1,  // Fill available space for reading content
-    width: '90%',
-    maxWidth: 900,
+    width: '100%',  // Full width on mobile
+    maxWidth: 900,  // Constrain on larger screens
     alignSelf: 'center',
-    backgroundColor: '#fdfaf5',  // Cream paper color from theme
-    borderRadius: 8,
-    marginHorizontal: 20,
-    marginVertical: 10,
-    overflow: 'hidden',
-    // Manual elevation/shadow styling
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 2,  // Android
+    marginBottom: 80,  // Space for FAB
+    ...(Platform.OS === 'ios' && {
+      height: Dimensions.get('window').height - 200,  // iOS: explicit height minus chrome
+    }),
   },
   debugModal: {
     backgroundColor: 'white',

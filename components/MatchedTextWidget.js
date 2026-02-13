@@ -24,6 +24,7 @@ import {
   IconButton,
   useTheme
 } from 'react-native-paper';
+import { Platform } from 'react-native';
 
 /**
  * Document Header Component
@@ -108,7 +109,7 @@ const MatchedTextWidget = ({
     highlightYPosition.current = y;
 
     // Auto-scroll to highlighted text
-    if (scrollViewRef.current && y !== null) {
+    if (scrollViewRef.current && y !== null && y > 0) {
       requestAnimationFrame(() => {
         scrollViewRef.current?.scrollTo({
           y: Math.max(0, y - 20),
@@ -117,16 +118,6 @@ const MatchedTextWidget = ({
       });
     }
   }, []);
-
-  // Scroll when highlight position changes
-  useEffect(() => {
-    if (highlightPosition && highlightYPosition.current !== null && scrollViewRef.current) {
-      scrollViewRef.current.scrollTo({
-        y: Math.max(0, highlightYPosition.current - 20),
-        animated: true
-      });
-    }
-  }, [highlightPosition]);
 
   // Extract text portions for display - show full document with highlight
   // Memoize to avoid expensive substring operations on every render
@@ -152,6 +143,16 @@ const MatchedTextWidget = ({
   }, [fullContent, highlightPosition]);
 
   const { before: beforeText, highlighted: highlightedText, after: afterText } = textSegments;
+
+  // Scroll when highlight position changes
+  useEffect(() => {
+    if (highlightPosition && highlightYPosition.current !== null && highlightYPosition.current > 0 && scrollViewRef.current) {
+      scrollViewRef.current.scrollTo({
+        y: Math.max(0, highlightYPosition.current - 20),
+        animated: true
+      });
+    }
+  }, [highlightPosition]);
 
   // Loading state
   if (isLoading && !matchedDocument) {
@@ -224,7 +225,6 @@ const styles = StyleSheet.create({
     margin: 16,
     backgroundColor: '#fdfaf5', // Off-white paper
     borderRadius: 8,
-    overflow: 'hidden', // Prevent content from escaping card boundaries
   },
   cardContent: {
     flex: 1,
@@ -292,7 +292,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     lineHeight: 28,
     color: '#2c2c2c',
-    marginBottom: 4,
   },
   contextText: {
     fontSize: 14,
