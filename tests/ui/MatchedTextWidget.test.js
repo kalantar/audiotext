@@ -12,7 +12,17 @@ const renderWithTheme = (component) => {
   );
 };
 
+// Helper to wrap component for rerender (maintains consistency with renderWithTheme)
+const wrapWithTheme = (component) => (
+  <PaperProvider theme={MD3LightTheme}>
+    {component}
+  </PaperProvider>
+);
+
 describe('MatchedTextWidget - Layout', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
   const mockDocumentData = {
     metadata: {
       title: 'Test Document',
@@ -96,7 +106,7 @@ describe('MatchedTextWidget - Layout', () => {
 
     // Advance to paragraph 2 - both should be highlighted
     rerender(
-      <PaperProvider theme={MD3LightTheme}>
+      wrapWithTheme(
         <MatchedTextWidget
           documentData={mockDocumentData}
           matchedSection="Test Section"
@@ -106,11 +116,107 @@ describe('MatchedTextWidget - Layout', () => {
           confidence={0.85}
           isLoading={false}
         />
-      </PaperProvider>
+      )
     );
 
     const secondPara = getByText('Second paragraph text.');
     expect(firstPara.props.style?.backgroundColor).toBeTruthy();
     expect(secondPara.props.style?.backgroundColor).toBeTruthy();
+  });
+});
+
+describe('MatchedTextWidget - Auto-Scroll', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const mockDocumentData = {
+    metadata: {
+      title: 'Test Document',
+      author: 'Test Author',
+    },
+    content: [
+      {
+        type: 'section',
+        title: 'Test Section',
+        paragraphs: [
+          { num: 1, text: 'First paragraph text.' },
+          { num: 2, text: 'Second paragraph text.' },
+          { num: 3, text: 'Third paragraph text.' },
+          { num: 4, text: 'Fourth paragraph text.' },
+        ],
+      },
+    ],
+  };
+
+  test('scrolls when currentParagraphIndex changes', () => {
+    const scrollToMock = jest.fn();
+    const { rerender } = renderWithTheme(
+      <MatchedTextWidget
+        documentData={mockDocumentData}
+        matchedSection="Test Section"
+        matchedParagraphNum={1}
+        currentParagraphIndex={0}
+        firstMatchedParagraphIndex={0}
+        confidence={0.85}
+        isLoading={false}
+        scrollRef={{ current: { scrollTo: scrollToMock } }}
+      />
+    );
+
+    // Change currentParagraphIndex
+    rerender(
+      wrapWithTheme(
+        <MatchedTextWidget
+          documentData={mockDocumentData}
+          matchedSection="Test Section"
+          matchedParagraphNum={2}
+          currentParagraphIndex={1}
+          firstMatchedParagraphIndex={0}
+          confidence={0.85}
+          isLoading={false}
+          scrollRef={{ current: { scrollTo: scrollToMock } }}
+        />
+      )
+    );
+
+    // Should trigger scroll
+    expect(scrollToMock).toHaveBeenCalled();
+  });
+
+  test('does not scroll if currentParagraphIndex unchanged', () => {
+    const scrollToMock = jest.fn();
+    const { rerender } = renderWithTheme(
+      <MatchedTextWidget
+        documentData={mockDocumentData}
+        matchedSection="Test Section"
+        matchedParagraphNum={1}
+        currentParagraphIndex={0}
+        confidence={0.85}
+        isLoading={false}
+        scrollRef={{ current: { scrollTo: scrollToMock } }}
+      />
+    );
+
+    // Verify initial render didn't trigger scroll
+    expect(scrollToMock).not.toHaveBeenCalled();
+
+    // Rerender with same currentParagraphIndex but different confidence
+    rerender(
+      wrapWithTheme(
+        <MatchedTextWidget
+          documentData={mockDocumentData}
+          matchedSection="Test Section"
+          matchedParagraphNum={1}
+          currentParagraphIndex={0}
+          confidence={0.90}
+          isLoading={false}
+          scrollRef={{ current: { scrollTo: scrollToMock } }}
+        />
+      )
+    );
+
+    // Should still not trigger scroll (unchanged currentParagraphIndex)
+    expect(scrollToMock).not.toHaveBeenCalled();
   });
 });
