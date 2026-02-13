@@ -14,21 +14,21 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Load search index
-const searchIndexPath = path.join(__dirname, '../public/search-index.json');
+const searchIndexPath = path.join(__dirname, '../../public/search-index.json');
 const searchIndex = JSON.parse(fs.readFileSync(searchIndexPath, 'utf8'));
 
 // Import textMatcher
-const textMatcherModule = await import('../utils/textMatcher.js');
+const textMatcherModule = await import('../../utils/textMatcher.js');
 const { findBestMatch } = textMatcherModule;
 
 // Test files to run
 const specificTest = process.argv[2];
 const testFiles = specificTest ? [specificTest] : [
-  'paragraph-67-test.js',
-  'unique-text-kit-b-i-q-n-noah-story-test.js',
-  'common-phrase-o-son-of-arabic-1-test.js',
-  'long-text-epistle-mid-paragraph-test.js',
-  'short-prayer-with-noise-test.js'
+  '../fixtures/paragraph-67-test.js',
+  '../fixtures/unique-text-kit-b-i-q-n-noah-story-test.js',
+  '../fixtures/common-phrase-o-son-of-arabic-1-test.js',
+  '../fixtures/long-text-epistle-mid-paragraph-test.js',
+  '../fixtures/short-prayer-with-noise-test.js'
 ];
 
 console.log('='.repeat(70));
