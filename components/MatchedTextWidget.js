@@ -13,7 +13,6 @@ import {
   Text,
   ScrollView,
   StyleSheet,
-  TouchableOpacity,
   Linking
 } from 'react-native';
 import {
@@ -24,7 +23,6 @@ import {
   IconButton,
   useTheme
 } from 'react-native-paper';
-import { Platform } from 'react-native';
 
 /**
  * Document Header Component
@@ -225,6 +223,7 @@ const styles = StyleSheet.create({
     margin: 16,
     backgroundColor: '#fdfaf5', // Off-white paper
     borderRadius: 8,
+    overflow: 'hidden', // Contain content within rounded corners
   },
   cardContent: {
     flex: 1,

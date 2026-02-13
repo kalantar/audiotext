@@ -158,7 +158,7 @@ MatchedTextWidget (display with highlighting)
 - **Developer-Friendly**: Debug panel designed for copying text and creating test cases (monospace font, scrollable).
 
 ### Accessibility & Ergonomics
-- **One-Handed Operation**: Primary action button (FAB for record/stop) positioned bottom-right for thumb reach on phones.
+- **One-Handed Operation**: Primary action button (FAB for record/stop) positioned bottom-center for easy access and visual balance.
 - **Phone-First Design**: Layout optimized for one-handed phone use while reading.
 - **Touch Targets**: Interactive elements sized appropriately for easy touch interaction.
 

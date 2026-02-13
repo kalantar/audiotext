@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView, Platform, SafeAreaView, Dimensions } from 'react-native';
+import { StyleSheet, Text, View, Alert, ScrollView, Platform, SafeAreaView, Dimensions } from 'react-native';
 import { Audio } from 'expo-av';
 import { Provider as PaperProvider, MD3LightTheme, FAB, IconButton, Portal, Modal } from 'react-native-paper';
 import MatchedTextWidget from './components/MatchedTextWidget';
@@ -27,7 +27,21 @@ const getLastWords = (text, wordCount) => {
 };
 
 // WebSocket server configuration
-const WS_SERVER_URL = 'ws://192.168.1.198:2700';
+// Auto-detects platform and returns appropriate URL:
+// - Web: localhost (server running on same machine)
+// - iOS/Android: Local network IP (for physical devices)
+const getWebSocketUrl = () => {
+  if (Platform.OS === 'web') {
+    return 'ws://localhost:2700';
+  }
+
+  // For iOS/Android physical devices, use your development machine's IP
+  // Update this IP to match your machine's local network address
+  const DEV_SERVER_IP = '192.168.1.198';
+  return `ws://${DEV_SERVER_IP}:2700`;
+};
+
+const WS_SERVER_URL = getWebSocketUrl();
 
 // Number of recent words to use for text matching
 // Large enough for noisy/KJ-English transcription signal, small enough to track progression
@@ -73,7 +87,6 @@ export default function App() {
   const [recording, setRecording] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [transcription, setTranscription] = useState('');
-  const [isTranscriptionExpanded, setIsTranscriptionExpanded] = useState(false);
   const [showDebugPanel, setShowDebugPanel] = useState(false);
   const wsRef = useRef(null);
   const finalTranscriptionRef = useRef('');
@@ -979,37 +992,37 @@ export default function App() {
     <PaperProvider theme={customTheme}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.container}>
-        <FAB
-          icon={isRecording ? "stop" : "microphone"}
-          label={isRecording ? "Stop" : "Record"}
-          mode="elevated"
-          size="large"
-          animated={true}
-          onPress={isRecording ? stopRecording : startRecording}
-          style={[styles.fab, isRecording && styles.fabRecording]}
-          color={isRecording ? '#fff' : undefined}
-        />
-
-        <IconButton
-          icon="bug"
-          size={20}
-          onPress={() => setShowDebugPanel(true)}
-          style={styles.debugButton}
-        />
-
-        <View style={styles.readingSurface}>
-          <MatchedTextWidget
-            matchedDocument={matchState.matchedDocument}
-            fullContent={matchState.matchedContent}
-            highlightPosition={matchState.highlightPosition}
-            isLoading={matchState.isLoading}
-            confidence={matchState.confidence}
-            isMatching={isMatching}
+          <FAB
+            icon={isRecording ? "stop" : "microphone"}
+            label={isRecording ? "Stop" : "Record"}
+            mode="elevated"
+            size="large"
+            animated={true}
+            onPress={isRecording ? stopRecording : startRecording}
+            style={[styles.fab, isRecording && styles.fabRecording]}
+            color={isRecording ? '#fff' : undefined}
           />
-        </View>
 
-        <StatusBar style="auto" />
-      </View>
+          <IconButton
+            icon="bug"
+            size={20}
+            onPress={() => setShowDebugPanel(true)}
+            style={styles.debugButton}
+          />
+
+          <View style={styles.readingSurface}>
+            <MatchedTextWidget
+              matchedDocument={matchState.matchedDocument}
+              fullContent={matchState.matchedContent}
+              highlightPosition={matchState.highlightPosition}
+              isLoading={matchState.isLoading}
+              confidence={matchState.confidence}
+              isMatching={isMatching}
+            />
+          </View>
+
+          <StatusBar style="auto" />
+        </View>
       </SafeAreaView>
 
       <Portal>
@@ -1078,7 +1091,7 @@ const styles = StyleSheet.create({
     }),
   },
   debugModal: {
-    backgroundColor: 'white',
+    backgroundColor: '#fdfaf5', // Match theme surface color
     padding: 20,
     margin: 20,
     borderRadius: 8,
@@ -1090,13 +1103,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: '#e0d5c7', // Match divider color from theme
     paddingBottom: 10,
   },
   debugTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#2c2c2c', // Match theme text color
   },
   debugContent: {
     maxHeight: 400,
@@ -1104,6 +1117,7 @@ const styles = StyleSheet.create({
   transcriptionText: {
     fontSize: 14,
     lineHeight: 20,
-    color: '#333',
+    color: '#2c2c2c', // Match theme text color
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
 });
