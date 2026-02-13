@@ -9,6 +9,7 @@ module.exports = {
   ],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
+    '^expo-av$': '<rootDir>/tests/ui/__mocks__/mockAudio.js',
   },
   collectCoverageFrom: [
     'App.js',
