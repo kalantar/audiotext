@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView, Platform } from 'react-native';
+import { StyleSheet, Text, View, Alert, ScrollView, Platform, SafeAreaView, Dimensions } from 'react-native';
 import { Audio } from 'expo-av';
+import { Provider as PaperProvider, MD3LightTheme, FAB, IconButton, Portal, Modal } from 'react-native-paper';
 import MatchedTextWidget from './components/MatchedTextWidget';
 import { findBestMatch, findHighlightPosition, getDocumentMetadata, debounce } from './utils/textMatcher';
+import textAssets from './assets/textAssets';
 
 // Development-only logging helper
 // __DEV__ is a built-in React Native constant that is automatically:
@@ -25,17 +27,67 @@ const getLastWords = (text, wordCount) => {
 };
 
 // WebSocket server configuration
-const WS_SERVER_URL = 'ws://localhost:2700';
+// Auto-detects platform and returns appropriate URL:
+// - Web: localhost (server running on same machine)
+// - iOS/Android: Local network IP (for physical devices)
+const getWebSocketUrl = () => {
+  if (Platform.OS === 'web') {
+    return 'ws://localhost:2700';
+  }
+
+  // For iOS/Android physical devices, use your development machine's IP
+  // Update this IP to match your machine's local network address
+  const DEV_SERVER_IP = '192.168.1.198';
+  return `ws://${DEV_SERVER_IP}:2700`;
+};
+
+const WS_SERVER_URL = getWebSocketUrl();
 
 // Number of recent words to use for text matching
 // Large enough for noisy/KJ-English transcription signal, small enough to track progression
 const MATCH_WINDOW_WORDS = 45;
 
+const customTheme = {
+  ...MD3LightTheme,
+  colors: {
+    ...MD3LightTheme.colors,
+    primary: '#9d5c0d', // Warm brown for Bahá'í aesthetic
+    primaryContainer: '#f5e6d3', // Light cream
+    secondary: '#6b4423',
+    surface: '#fdfaf5', // Off-white paper color
+    surfaceVariant: '#f5f0e8',
+    background: '#f5f5f0',
+    elevation: {
+      level0: 'transparent',
+      level1: '#fdfaf5',
+      level2: '#faf7f2',
+      level3: '#f7f4ef',
+      level4: '#f5f2ed',
+      level5: '#f2efea',
+    }
+  },
+  fonts: {
+    ...MD3LightTheme.fonts,
+    bodyLarge: {
+      ...MD3LightTheme.fonts.bodyLarge,
+      fontFamily: 'Georgia', // Serif for reading
+      fontSize: 18,
+      lineHeight: 28,
+    },
+    bodyMedium: {
+      ...MD3LightTheme.fonts.bodyMedium,
+      fontFamily: 'Georgia',
+      fontSize: 16,
+      lineHeight: 24,
+    },
+  },
+};
+
 export default function App() {
   const [recording, setRecording] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [transcription, setTranscription] = useState('');
-  const [isTranscriptionExpanded, setIsTranscriptionExpanded] = useState(false);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
   const wsRef = useRef(null);
   const finalTranscriptionRef = useRef('');
   const webMediaStreamRef = useRef(null);
@@ -151,24 +203,29 @@ export default function App() {
     const loadSearchIndex = async () => {
       console.log('[MATCH] Loading search index...');
       try {
-        // Try to load the search index from public folder
-        const response = await fetch('/search-index.json');
-        console.log('[MATCH] Fetch response:', response.status, response.ok);
-        if (response.ok) {
-          const index = await response.json();
-          searchIndexRef.current = index;
-          console.log('[MATCH] Search index loaded:', index.documents?.length, 'entries');
+        if (Platform.OS === 'web') {
+          // Web: load from public folder
+          const response = await fetch('/search-index.json');
+          console.log('[MATCH] Fetch response:', response.status, response.ok);
+          if (response.ok) {
+            const index = await response.json();
+            searchIndexRef.current = index;
+            console.log('[MATCH] Search index loaded:', index.documents?.length, 'entries');
+          } else {
+            console.log('[MATCH] Search index not found - text matching disabled');
+          }
         } else {
-          console.log('[MATCH] Search index not found - text matching disabled');
+          // Native (iOS/Android): require from assets folder
+          const index = require('./assets/search-index.json');
+          searchIndexRef.current = index;
+          console.log('[MATCH] Search index loaded (native):', index.documents?.length, 'entries');
         }
       } catch (err) {
         console.log('[MATCH] Failed to load search index:', err.message);
       }
     };
 
-    if (Platform.OS === 'web') {
-      loadSearchIndex();
-    }
+    loadSearchIndex();
   }, []);
 
   // Fetch full section content when a match is found
@@ -183,14 +240,25 @@ export default function App() {
 
     try {
       console.log('[FETCH] Fetching document:', docId, 'section:', section);
-      // Fetch full document
-      const response = await fetch(`/texts/${docId}.json`);
-      if (!response.ok) {
-        console.log('[FETCH] Document not found:', docId, response.status);
-        throw new Error(`Document not found: ${docId}`);
+
+      let doc;
+      if (Platform.OS === 'web') {
+        // Web: fetch from public folder
+        const response = await fetch(`/texts/${docId}.json`);
+        if (!response.ok) {
+          console.log('[FETCH] Document not found:', docId, response.status);
+          throw new Error(`Document not found: ${docId}`);
+        }
+        doc = await response.json();
+      } else {
+        // Native (iOS/Android): load from bundled assets
+        doc = textAssets[docId];
+        if (!doc) {
+          console.log('[FETCH] Document not found in assets:', docId);
+          throw new Error(`Document not found: ${docId}`);
+        }
       }
 
-      const doc = await response.json();
       console.log('[FETCH] Document loaded, sections:', doc.sections?.length);
 
       // Find the section by title (sections is an array, not an object)
@@ -921,129 +989,135 @@ export default function App() {
   }, []);
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>FollowAlong Audio Recorder</Text>
+    <PaperProvider theme={customTheme}>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.container}>
+          <FAB
+            icon={isRecording ? "stop" : "microphone"}
+            label={isRecording ? "Stop" : "Record"}
+            mode="elevated"
+            size="large"
+            animated={true}
+            onPress={isRecording ? stopRecording : startRecording}
+            style={[styles.fab, isRecording && styles.fabRecording]}
+            color={isRecording ? '#fff' : undefined}
+          />
 
-      <View style={styles.buttonsContainer}>
-        <TouchableOpacity
-          style={[styles.button, isRecording ? styles.stopButton : styles.recordButton]}
-          onPress={isRecording ? stopRecording : startRecording}
-        >
-          <Text style={styles.buttonText}>
-            {isRecording ? 'Stop Recording' : 'Start Recording'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+          <IconButton
+            icon="bug"
+            size={20}
+            onPress={() => setShowDebugPanel(true)}
+            style={styles.debugButton}
+          />
 
-      <View style={styles.transcriptionContainer}>
-        <TouchableOpacity
-          onPress={() => setIsTranscriptionExpanded(!isTranscriptionExpanded)}
-          style={styles.transcriptionHeader}
+          <View style={styles.readingSurface}>
+            <MatchedTextWidget
+              matchedDocument={matchState.matchedDocument}
+              fullContent={matchState.matchedContent}
+              highlightPosition={matchState.highlightPosition}
+              isLoading={matchState.isLoading}
+              confidence={matchState.confidence}
+              isMatching={isMatching}
+            />
+          </View>
+
+          <StatusBar style="auto" />
+        </View>
+      </SafeAreaView>
+
+      <Portal>
+        <Modal
+          visible={showDebugPanel}
+          onDismiss={() => setShowDebugPanel(false)}
+          contentContainerStyle={styles.debugModal}
         >
-          <Text style={styles.transcriptionLabel}>
-            {isTranscriptionExpanded ? '▼' : '▶'} Transcription
-          </Text>
-        </TouchableOpacity>
-        {isTranscriptionExpanded && (
-          <ScrollView style={styles.transcriptionScrollView}>
-            <Text style={[styles.transcriptionText, !transcription && styles.placeholderText]}>
+          <View style={styles.debugHeader}>
+            <Text style={styles.debugTitle}>Debug: Transcription</Text>
+            <IconButton
+              icon="close"
+              size={20}
+              onPress={() => setShowDebugPanel(false)}
+            />
+          </View>
+          <ScrollView style={styles.debugContent}>
+            <Text style={styles.transcriptionText}>
               {transcription || 'Transcription will appear here when you start recording...'}
             </Text>
           </ScrollView>
-        )}
-      </View>
-
-      {Platform.OS === 'web' && (
-        <MatchedTextWidget
-          matchedDocument={matchState.matchedDocument}
-          fullContent={matchState.matchedContent}
-          highlightPosition={matchState.highlightPosition}
-          isLoading={matchState.isLoading}
-          confidence={matchState.confidence}
-          isMatching={isMatching}
-        />
-      )}
-
-      <StatusBar style="auto" />
-    </View>
+        </Modal>
+      </Portal>
+    </PaperProvider>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#f5f5f0', // Match container background
+  },
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f5f5f0', // Subtle warm background for reading comfort
     alignItems: 'center',
     justifyContent: 'flex-start',
     padding: 20,
-    paddingTop: 60,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: 40,
-    color: '#333',
+  fab: {
+    position: 'absolute',
+    alignSelf: 'center',  // Center horizontally
+    bottom: 20,
+    margin: 16,
+    backgroundColor: '#9d5c0d', // Warm brown primary color
+    zIndex: 1000,
+    elevation: 5,  // Android elevation
   },
-  buttonsContainer: {
-    width: '100%',
-    maxWidth: 300,
-    gap: 15,
-    marginBottom: 20,
+  fabRecording: {
+    backgroundColor: '#d32f2f', // Red background when recording
   },
-  button: {
-    padding: 18,
-    borderRadius: 10,
+  debugButton: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    margin: 0,
+  },
+  readingSurface: {
+    flex: 1,  // Fill available space for reading content
+    width: '100%',  // Full width on mobile
+    maxWidth: 900,  // Constrain on larger screens
+    alignSelf: 'center',
+    marginBottom: 80,  // Space for FAB
+    ...(Platform.OS === 'ios' && {
+      height: Dimensions.get('window').height - 200,  // iOS: explicit height minus chrome
+    }),
+  },
+  debugModal: {
+    backgroundColor: '#fdfaf5', // Match theme surface color
+    padding: 20,
+    margin: 20,
+    borderRadius: 8,
+    maxHeight: '80%',
+  },
+  debugHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 4,
+    marginBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0d5c7', // Match divider color from theme
+    paddingBottom: 10,
   },
-  recordButton: {
-    backgroundColor: '#34C759',
-  },
-  stopButton: {
-    backgroundColor: '#FF3B30',
-  },
-  buttonText: {
-    color: '#fff',
+  debugTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: 'bold',
+    color: '#2c2c2c', // Match theme text color
   },
-  transcriptionContainer: {
-    backgroundColor: '#fff',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 20,
-    width: '80%',
-    maxHeight: 200,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  transcriptionHeader: {
-    width: '100%',
-  },
-  transcriptionLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-    marginBottom: 8,
-  },
-  transcriptionScrollView: {
-    maxHeight: 150,
+  debugContent: {
+    maxHeight: 400,
   },
   transcriptionText: {
-    fontSize: 16,
-    color: '#333',
-    lineHeight: 24,
-  },
-  placeholderText: {
-    fontStyle: 'italic',
-    color: '#999',
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#2c2c2c', // Match theme text color
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
 });

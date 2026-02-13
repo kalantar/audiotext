@@ -13,9 +13,16 @@ import {
   Text,
   ScrollView,
   StyleSheet,
-  TouchableOpacity,
   Linking
 } from 'react-native';
+import {
+  Card,
+  Text as PaperText,
+  Divider,
+  ActivityIndicator,
+  IconButton,
+  useTheme
+} from 'react-native-paper';
 
 /**
  * Document Header Component
@@ -32,22 +39,41 @@ const DocumentHeader = React.memo(({ title, author, url, confidence, isMatching 
 
   return (
     <View style={styles.headerContainer}>
-      <View style={styles.headerTextContainer}>
-        <Text style={styles.titleText} numberOfLines={1}>{title || 'Unknown Text'}</Text>
-        <Text style={styles.authorText}>{author || 'Unknown Author'}</Text>
+      <View style={styles.titleRow}>
+        <PaperText variant="titleLarge" style={styles.titleText}>
+          {title || 'Unknown Text'}
+        </PaperText>
+        {url && (
+          <IconButton
+            icon="open-in-new"
+            size={20}
+            iconColor="#666"
+            onPress={handleOpenSource}
+            style={styles.sourceIconButton}
+          />
+        )}
       </View>
+
+      {author && (
+        <PaperText variant="bodyMedium" style={styles.authorText}>
+          {author}
+        </PaperText>
+      )}
+
       {confidence !== undefined && (
         <View style={styles.confidenceContainer}>
-          <View style={[styles.confidenceBar, { width: `${Math.min(100, confidence * 100)}%` }]} />
+          <PaperText variant="labelSmall" style={styles.confidenceLabel}>
+            Match: {Math.round(confidence * 100)}%
+          </PaperText>
+          <View style={styles.confidenceBar}>
+            <View
+              style={[
+                styles.confidenceFill,
+                { width: `${confidence * 100}%` }
+              ]}
+            />
+          </View>
         </View>
-      )}
-      {isMatching && (
-        <Text style={styles.searchingText}>...</Text>
-      )}
-      {url && (
-        <TouchableOpacity onPress={handleOpenSource} style={styles.sourceLink}>
-          <Text style={styles.sourceLinkText}>Source</Text>
-        </TouchableOpacity>
       )}
     </View>
   );
@@ -71,6 +97,7 @@ const MatchedTextWidget = ({
   confidence,
   isMatching
 }) => {
+  const theme = useTheme();
   const scrollViewRef = useRef(null);
   const highlightYPosition = useRef(null);
 
@@ -80,7 +107,7 @@ const MatchedTextWidget = ({
     highlightYPosition.current = y;
 
     // Auto-scroll to highlighted text
-    if (scrollViewRef.current && y !== null) {
+    if (scrollViewRef.current && y !== null && y > 0) {
       requestAnimationFrame(() => {
         scrollViewRef.current?.scrollTo({
           y: Math.max(0, y - 20),
@@ -89,16 +116,6 @@ const MatchedTextWidget = ({
       });
     }
   }, []);
-
-  // Scroll when highlight position changes
-  useEffect(() => {
-    if (highlightPosition && highlightYPosition.current !== null && scrollViewRef.current) {
-      scrollViewRef.current.scrollTo({
-        y: Math.max(0, highlightYPosition.current - 20),
-        animated: true
-      });
-    }
-  }, [highlightPosition]);
 
   // Extract text portions for display - show full document with highlight
   // Memoize to avoid expensive substring operations on every render
@@ -125,177 +142,186 @@ const MatchedTextWidget = ({
 
   const { before: beforeText, highlighted: highlightedText, after: afterText } = textSegments;
 
+  // Scroll when highlight position changes
+  useEffect(() => {
+    if (highlightPosition && highlightYPosition.current !== null && highlightYPosition.current > 0 && scrollViewRef.current) {
+      scrollViewRef.current.scrollTo({
+        y: Math.max(0, highlightYPosition.current - 20),
+        animated: true
+      });
+    }
+  }, [highlightPosition]);
+
   // Loading state
   if (isLoading && !matchedDocument) {
     return (
-      <View style={styles.widgetContainer}>
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading text...</Text>
-        </View>
-      </View>
+      <Card style={styles.paperCard} elevation={1}>
+        <Card.Content style={styles.emptyState}>
+          <ActivityIndicator size="large" />
+          <PaperText variant="bodyMedium" style={styles.emptyText}>
+            Loading text...
+          </PaperText>
+        </Card.Content>
+      </Card>
     );
   }
 
   // No match state
   if (!matchedDocument || !fullContent) {
     return (
-      <View style={styles.widgetContainer}>
-        <View style={styles.noMatchContainer}>
-          <Text style={styles.noMatchText}>
-            {isMatching ? 'Searching...' : 'Speak to find matching text...'}
-          </Text>
-          <Text style={styles.noMatchHint}>
-            The app will search for matching passages as you speak.
-          </Text>
-        </View>
-      </View>
+      <Card style={styles.paperCard} elevation={1}>
+        <Card.Content style={styles.emptyState}>
+          <PaperText variant="headlineSmall" style={styles.emptyTitle}>
+            {isMatching ? 'Searching...' : 'Ready to listen'}
+          </PaperText>
+          <PaperText variant="bodyMedium" style={styles.emptyHint}>
+            Press the microphone button and speak to find matching passages
+          </PaperText>
+        </Card.Content>
+      </Card>
     );
   }
 
   return (
-    <View style={styles.widgetContainer}>
-      <DocumentHeader
-        title={matchedDocument.title}
-        author={matchedDocument.author}
-        url={matchedDocument.url}
-        confidence={confidence}
-        isMatching={isMatching}
-      />
+    <Card style={styles.paperCard} elevation={2}>
+      <Card.Content style={styles.cardContent}>
+        <DocumentHeader
+          title={matchedDocument.title}
+          author={matchedDocument.author}
+          url={matchedDocument.url}
+          confidence={confidence}
+          isMatching={isMatching}
+        />
 
-      <ScrollView ref={scrollViewRef} style={styles.textScrollView}>
-        <Text style={styles.verseLabel}>
+        <Divider style={styles.divider} />
+
+        <PaperText variant="labelLarge" style={styles.verseLabel}>
           {matchedDocument.section && `${matchedDocument.section} `}
           {matchedDocument.verseNum && `#${matchedDocument.verseNum}`}
-        </Text>
+        </PaperText>
 
-        {beforeText && (
-          <Text style={[styles.textContent, styles.contextText]}>
+        <ScrollView ref={scrollViewRef} style={styles.textScrollView} contentContainerStyle={styles.scrollContent}>
+          <Text style={styles.textContent}>
             {beforeText}
-          </Text>
-        )}
-
-        {highlightPosition && (
-          <View onLayout={handleHighlightLayout} style={styles.scrollMarker} />
-        )}
-
-        <View collapsable={false}>
-          <Text style={[styles.textContent, styles.highlightedText]}>
-            {highlightedText}
-          </Text>
-        </View>
-
-        {afterText && (
-          <Text style={[styles.textContent, styles.contextText]}>
+            <Text
+              style={styles.highlightedText}
+              onLayout={handleHighlightLayout}
+            >
+              {highlightedText}
+            </Text>
             {afterText}
           </Text>
-        )}
-      </ScrollView>
-    </View>
+        </ScrollView>
+      </Card.Content>
+    </Card>
   );
 };
 
 const styles = StyleSheet.create({
-  widgetContainer: {
+  paperCard: {
     flex: 1,
-    width: '80%',
-    paddingTop: 10,
+    margin: 16,
+    backgroundColor: '#fdfaf5', // Off-white paper
+    borderRadius: 8,
+    overflow: 'hidden', // Contain content within rounded corners
+  },
+  cardContent: {
+    flex: 1,
+    padding: 0, // Card.Content has default padding we need to control
+  },
+  divider: {
+    marginVertical: 12,
+    marginHorizontal: 16,
+    backgroundColor: '#e0d5c7',
   },
   headerContainer: {
+    marginBottom: 12,
+    paddingHorizontal: 16,
+  },
+  titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    paddingBottom: 10,
-    marginBottom: 10,
-  },
-  headerTextContainer: {
-    flex: 1,
+    marginBottom: 4,
   },
   titleText: {
-    fontSize: 16,
+    color: '#2c2c2c',
     fontWeight: '600',
-    color: '#333',
+  },
+  sourceIconButton: {
+    margin: 0,
+    marginLeft: -4,
+    marginTop: -2,
   },
   authorText: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
+    color: '#6b4423',
+    marginBottom: 8,
   },
   confidenceContainer: {
-    width: 50,
-    height: 4,
-    backgroundColor: '#eee',
-    borderRadius: 2,
-    marginHorizontal: 10,
-    overflow: 'hidden',
+    marginTop: 8,
+  },
+  confidenceLabel: {
+    color: '#666',
+    marginBottom: 4,
   },
   confidenceBar: {
-    height: '100%',
-    backgroundColor: '#34C759',
+    height: 4,
+    backgroundColor: '#e0e0e0',
     borderRadius: 2,
+    overflow: 'hidden',
   },
-  searchingText: {
-    fontSize: 11,
-    color: '#999',
-    marginHorizontal: 4,
-  },
-  sourceLink: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  sourceLinkText: {
-    fontSize: 12,
-    color: '#007AFF',
+  confidenceFill: {
+    height: '100%',
+    backgroundColor: '#9d5c0d',
   },
   textScrollView: {
     flex: 1,
+    paddingHorizontal: 16,
   },
-  scrollMarker: {
-    height: 0,
-    width: 0,
+  scrollContent: {
+    paddingBottom: 20,
   },
   verseLabel: {
-    fontSize: 12,
-    color: '#999',
+    color: '#6b4423',
     marginBottom: 8,
-    fontStyle: 'italic',
+    paddingHorizontal: 16,
+    fontWeight: '600',
   },
   textContent: {
-    lineHeight: 24,
+    fontFamily: 'Georgia',
+    fontSize: 18,
+    lineHeight: 28,
+    color: '#2c2c2c',
   },
   contextText: {
     fontSize: 14,
     color: '#888',
   },
   highlightedText: {
-    fontSize: 15,
-    color: '#000',
-    backgroundColor: '#FFE082',
-    fontWeight: '500',
+    backgroundColor: '#fff59d',  // Yellow highlighter color
+    paddingVertical: 2,
+    paddingHorizontal: 1,
+    // No fontSize change - inherit from textContent (18px)
+    // No fontWeight change - keep normal weight
+    // No color change - inherit from textContent
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  emptyState: {
     alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 14,
-    color: '#666',
-  },
-  noMatchContainer: {
-    flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
+    paddingVertical: 60,
+    paddingHorizontal: 20,
   },
-  noMatchText: {
-    fontSize: 16,
-    color: '#666',
+  emptyTitle: {
+    color: '#6b4423',
+    marginBottom: 8,
     textAlign: 'center',
   },
-  noMatchHint: {
-    fontSize: 12,
-    color: '#999',
+  emptyText: {
+    color: '#8d8d8d',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  emptyHint: {
+    color: '#8d8d8d',
     textAlign: 'center',
     marginTop: 8,
   },
