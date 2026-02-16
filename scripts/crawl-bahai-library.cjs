@@ -9,7 +9,10 @@
  * - assets/search-index.json + public/search-index.json - lightweight search index
  * - assets/texts/{doc-id}.json + public/texts/{doc-id}.json - full document content
  *
- * Usage: node scripts/crawl-bahai-library.js
+ * Special handling:
+ * - Crawls individual messages from UHJ messages index (400+ messages)
+ *
+ * Usage: node scripts/crawl-bahai-library.cjs
  */
 
 const https = require('https');
@@ -272,6 +275,33 @@ function generateNgrams(text, sizes = [3, 4, 5]) {
 }
 
 /**
+ * Extract individual message links from UHJ messages index page
+ * Messages are in format: 20260104_001/1
+ */
+function extractMessageLinks(html, basePath) {
+  const messages = [];
+  const linkPattern = /href="(\d{8}_\d{3})\/\d"/g;
+  const seen = new Set();
+
+  let match;
+  while ((match = linkPattern.exec(html)) !== null) {
+    const messageId = match[1];
+    if (!seen.has(messageId)) {
+      seen.add(messageId);
+      const messagePath = `${basePath}${messageId}/`;
+      messages.push({
+        path: messagePath,
+        title: `Message ${messageId}`,
+        id: messageId,
+        xhtmlUrl: `${messagePath}${messageId}.xhtml`
+      });
+    }
+  }
+
+  return messages;
+}
+
+/**
  * Discover all documents from category pages
  */
 async function discoverDocuments() {
@@ -298,6 +328,26 @@ async function discoverDocuments() {
     } catch (err) {
       console.error(`  Error fetching category: ${err.message}\n`);
     }
+  }
+
+  // Special handling: Crawl individual messages from UHJ messages index
+  const messagesPath = '/library/authoritative-texts/the-universal-house-of-justice/messages/';
+  console.log(`\nSpecial: Discovering individual messages from ${messagesPath}`);
+  try {
+    const html = await fetchPage(messagesPath);
+    const messages = extractMessageLinks(html, messagesPath);
+    console.log(`  Found ${messages.length} individual messages\n`);
+
+    for (const msg of messages) {
+      allDocuments.push({
+        ...msg,
+        category: '/library/authoritative-texts/the-universal-house-of-justice/'
+      });
+    }
+
+    await sleep(REQUEST_DELAY);
+  } catch (err) {
+    console.error(`  Error fetching messages index: ${err.message}\n`);
   }
 
   // Remove duplicates (same document might appear in multiple places)
