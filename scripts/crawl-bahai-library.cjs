@@ -31,20 +31,21 @@ const PUBLIC_INDEX_FILE = path.join(__dirname, '..', 'public', 'search-index.jso
 const REQUEST_DELAY = 500;
 
 // Test mode: limit number of messages to crawl (0 = all)
-const MESSAGE_LIMIT = 50;  // Set to 0 to crawl all messages
+const MESSAGE_LIMIT = 0;  // Set to 0 to crawl all messages
 
 // Categories to crawl
 // Note: Comment out categories you've already crawled to avoid re-downloading
 const CATEGORIES = [
-  // '/library/authoritative-texts/bahaullah/',  // Already crawled
-  '/library/authoritative-texts/the-bab/',
-  '/library/authoritative-texts/abdul-baha/',
-  '/library/authoritative-texts/shoghi-effendi/',
-  '/library/authoritative-texts/the-universal-house-of-justice/',
-  '/library/authoritative-texts/compilations/',
-  '/library/authoritative-texts/prayers/',
-  '/library/other-literature/official-statements-commentaries/',
-  '/library/other-literature/publications-individual-authors/',
+  // All categories already crawled - testing messages only
+  // '/library/authoritative-texts/bahaullah/',
+  // '/library/authoritative-texts/the-bab/',
+  // '/library/authoritative-texts/abdul-baha/',
+  // '/library/authoritative-texts/shoghi-effendi/',
+  // '/library/authoritative-texts/the-universal-house-of-justice/',
+  // '/library/authoritative-texts/compilations/',
+  // '/library/authoritative-texts/prayers/',
+  // '/library/other-literature/official-statements-commentaries/',
+  // '/library/other-literature/publications-individual-authors/',
 ];
 
 // Common stop words to exclude from token index
