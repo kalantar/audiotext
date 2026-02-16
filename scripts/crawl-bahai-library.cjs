@@ -30,6 +30,9 @@ const PUBLIC_INDEX_FILE = path.join(__dirname, '..', 'public', 'search-index.jso
 // Rate limiting: delay between requests (ms)
 const REQUEST_DELAY = 500;
 
+// Test mode: limit number of messages to crawl (0 = all)
+const MESSAGE_LIMIT = 50;  // Set to 0 to crawl all messages
+
 // Categories to crawl
 // Note: Comment out categories you've already crawled to avoid re-downloading
 const CATEGORIES = [
@@ -335,8 +338,16 @@ async function discoverDocuments() {
   console.log(`\nSpecial: Discovering individual messages from ${messagesPath}`);
   try {
     const html = await fetchPage(messagesPath);
-    const messages = extractMessageLinks(html, messagesPath);
-    console.log(`  Found ${messages.length} individual messages\n`);
+    let messages = extractMessageLinks(html, messagesPath);
+    console.log(`  Found ${messages.length} individual messages`);
+
+    // Apply limit if in test mode
+    if (MESSAGE_LIMIT > 0 && messages.length > MESSAGE_LIMIT) {
+      messages = messages.slice(0, MESSAGE_LIMIT);
+      console.log(`  Test mode: limiting to ${MESSAGE_LIMIT} most recent messages\n`);
+    } else {
+      console.log('');
+    }
 
     for (const msg of messages) {
       allDocuments.push({
