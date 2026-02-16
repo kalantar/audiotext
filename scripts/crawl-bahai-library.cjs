@@ -5,9 +5,9 @@
  * Automatically discovers and downloads all texts from bahai.org/library
  * Fetches the .xhtml version of each document (complete HTML in one file)
  *
- * Generates:
- * - assets/search-index.json - lightweight search index
- * - assets/texts/{doc-id}.json - full document content
+ * Generates (writes to both locations):
+ * - assets/search-index.json + public/search-index.json - lightweight search index
+ * - assets/texts/{doc-id}.json + public/texts/{doc-id}.json - full document content
  *
  * Usage: node scripts/crawl-bahai-library.js
  */
@@ -17,8 +17,12 @@ const fs = require('fs').promises;
 const path = require('path');
 
 const BASE_URL = 'https://www.bahai.org';
-const OUTPUT_DIR = path.join(__dirname, '..', 'assets', 'texts');
-const INDEX_FILE = path.join(__dirname, '..', 'assets', 'search-index.json');
+
+// Output directories - write to both assets/ (native) and public/ (web)
+const ASSETS_TEXTS_DIR = path.join(__dirname, '..', 'assets', 'texts');
+const ASSETS_INDEX_FILE = path.join(__dirname, '..', 'assets', 'search-index.json');
+const PUBLIC_TEXTS_DIR = path.join(__dirname, '..', 'public', 'texts');
+const PUBLIC_INDEX_FILE = path.join(__dirname, '..', 'public', 'search-index.json');
 
 // Rate limiting: delay between requests (ms)
 const REQUEST_DELAY = 500;
@@ -385,8 +389,9 @@ async function main() {
   console.log('='.repeat(50));
   console.log('');
 
-  // Ensure output directory exists
-  await fs.mkdir(OUTPUT_DIR, { recursive: true });
+  // Ensure output directories exist (both assets/ and public/)
+  await fs.mkdir(ASSETS_TEXTS_DIR, { recursive: true });
+  await fs.mkdir(PUBLIC_TEXTS_DIR, { recursive: true });
 
   // Discover all documents
   const documents = await discoverDocuments();
@@ -401,10 +406,14 @@ async function main() {
       if (content) {
         crawledDocs.push(content);
 
-        // Save full document
-        const docPath = path.join(OUTPUT_DIR, `${doc.id}.json`);
-        await fs.writeFile(docPath, JSON.stringify(content, null, 2));
-        console.log(`  Saved: ${docPath}`);
+        // Save full document to both locations
+        const contentJson = JSON.stringify(content, null, 2);
+        const assetsPath = path.join(ASSETS_TEXTS_DIR, `${doc.id}.json`);
+        const publicPath = path.join(PUBLIC_TEXTS_DIR, `${doc.id}.json`);
+
+        await fs.writeFile(assetsPath, contentJson);
+        await fs.writeFile(publicPath, contentJson);
+        console.log(`  Saved: ${doc.id}.json (assets + public)`);
       }
 
       // Rate limit
@@ -414,16 +423,20 @@ async function main() {
     }
   }
 
-  // Generate and save search index
+  // Generate and save search index to both locations
   console.log('\n' + '='.repeat(50));
   console.log('Generating search index...');
   const searchIndex = generateSearchIndex(crawledDocs);
-  await fs.writeFile(INDEX_FILE, JSON.stringify(searchIndex, null, 2));
+  const indexJson = JSON.stringify(searchIndex, null, 2);
+
+  await fs.writeFile(ASSETS_INDEX_FILE, indexJson);
+  await fs.writeFile(PUBLIC_INDEX_FILE, indexJson);
 
   console.log(`\nComplete!`);
   console.log(`  Documents crawled: ${crawledDocs.length}`);
   console.log(`  Index entries: ${searchIndex.documents.length}`);
-  console.log(`  Index file: ${INDEX_FILE}`);
+  console.log(`  Assets: ${ASSETS_INDEX_FILE}`);
+  console.log(`  Public: ${PUBLIC_INDEX_FILE}`);
 }
 
 main().catch(err => {

@@ -27,7 +27,7 @@ npm start                  # Start WebSocket server on port 2700
 
 ### Text Crawling (optional)
 ```bash
-node scripts/crawl-bahai-library.js   # Download texts from bahai.org/library
+node scripts/crawl-bahai-library.cjs   # Download texts from bahai.org/library
 ```
 
 ## Architecture
@@ -82,12 +82,13 @@ MatchedTextWidget (display with highlighting)
 - **`public/texts/{doc-id}.json`**: Full document content with metadata
 - Texts include: Kitáb-i-Aqdas, Kitáb-i-Íqán, Hidden Words, Gleanings, Prayers & Meditations, etc.
 
-### Web Crawler (scripts/crawl-bahai-library.js)
+### Web Crawler (scripts/crawl-bahai-library.cjs)
 - Downloads texts from bahai.org/library
 - Fetches .xhtml versions (complete HTML in one file)
 - Extracts metadata, sections, paragraphs, verses
 - Generates search index with tokenized n-grams
-- Saves individual document JSON files
+- Saves to both `assets/` (for native) and `public/` (for web)
+- Individual document JSON files: `{doc-id}.json`
 
 ## Key Technical Details
 
