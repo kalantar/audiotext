@@ -30,6 +30,8 @@ npm start                  # Start WebSocket server on port 2700
 node scripts/crawl-bahai-library.cjs   # Download texts from bahai.org/library
 ```
 
+See `docs/crawler-guide.md` for comprehensive documentation on crawling, configuration, and troubleshooting.
+
 ## Architecture
 
 ### Data Flow
