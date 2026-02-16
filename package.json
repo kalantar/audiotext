@@ -8,9 +8,12 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "test": "node tests/matching/run-tests.mjs && jest",
+    "test": "npm run test:matching && npm run test:ui",
     "test:matching": "node tests/matching/run-tests.mjs",
-    "test:ui": "jest"
+    "test:ui": "jest",
+    "test:ui:watch": "jest --watch",
+    "test:ui:coverage": "jest --coverage",
+    "ui-review": "node tests/ui-review/review-ui.js"
   },
   "dependencies": {
     "expo": "~54.0.30",
