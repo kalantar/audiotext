@@ -117,39 +117,33 @@ describe('MatchedTextWidget - Layout', () => {
 });
 
 describe('MatchedTextWidget - Auto-Scroll', () => {
+  // The react-native jest mock for ScrollView is a class component.
+  // Its instance methods (including scrollTo) are placed on the prototype as jest.fn()s,
+  // so all instances share the same spy. We access it directly from the prototype.
+  const { ScrollView } = require('react-native');
   let scrollToMock;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    scrollToMock = jest.fn();
-    // Mock ScrollView's scrollTo method
-    jest.spyOn(require('react-native'), 'ScrollView').mockImplementation(
-      ({ children, onScroll, ...props }) => {
-        const { View } = require('react-native');
-        return (
-          <View
-            {...props}
-            testID="matched-text-scrollview"
-            onScroll={onScroll}
-            ref={(ref) => {
-              if (ref && props.ref) {
-                props.ref.current = { scrollTo: scrollToMock };
-              }
-            }}
-          >
-            {children}
-          </View>
-        );
-      }
-    );
+    // The built-in mock puts scrollTo on ScrollView.prototype as a jest.fn()
+    scrollToMock = ScrollView.prototype.scrollTo;
+    scrollToMock.mockClear();
   });
 
-  afterEach(() => {
-    jest.restoreAllMocks();
-  });
+  // Helper: fire onLayout on the highlighted Text element to set highlightYPosition.current
+  function fireHighlightLayout(renderResult, y = 100) {
+    const { UNSAFE_getAllByType } = renderResult;
+    const { Text } = require('react-native');
+    const allTexts = UNSAFE_getAllByType(Text);
+    const highlightedTextEl = allTexts.find(el => el.props.onLayout);
+    if (highlightedTextEl) {
+      highlightedTextEl.props.onLayout({ nativeEvent: { layout: { y } } });
+    }
+    return highlightedTextEl;
+  }
 
   test('auto-scrolls on highlight position change when user has not scrolled', () => {
-    const { rerender, getByTestId } = renderWithTheme(
+    const renderResult = renderWithTheme(
       <MatchedTextWidget
         matchedDocument={mockDocument}
         fullContent={mockFullContent}
@@ -160,8 +154,10 @@ describe('MatchedTextWidget - Auto-Scroll', () => {
         isRecording={false}
       />
     );
+    const { rerender } = renderResult;
 
-    // Clear any initial scroll calls
+    // Fire onLayout on highlighted text to set highlightYPosition.current = 100
+    fireHighlightLayout(renderResult, 100);
     scrollToMock.mockClear();
 
     // Change highlight position (simulates new match)
@@ -179,14 +175,12 @@ describe('MatchedTextWidget - Auto-Scroll', () => {
       )
     );
 
-    // Should have attempted auto-scroll
-    // Note: scrollTo might not be called if onLayout hasn't fired yet in test
-    // This test verifies the component structure is correct
-    expect(getByTestId('matched-text-scrollview')).toBeTruthy();
+    // The highlightPosition useEffect should have triggered auto-scroll
+    expect(scrollToMock).toHaveBeenCalledWith({ y: 80, animated: true });
   });
 
   test('does not auto-scroll when user has manually scrolled', () => {
-    const { rerender, getByTestId } = renderWithTheme(
+    const renderResult = renderWithTheme(
       <MatchedTextWidget
         matchedDocument={mockDocument}
         fullContent={mockFullContent}
@@ -197,12 +191,19 @@ describe('MatchedTextWidget - Auto-Scroll', () => {
         isRecording={false}
       />
     );
+    const { rerender, getByTestId } = renderResult;
 
-    // Simulate user manual scroll
+    // Simulate user manual scroll FIRST (before any onLayout).
+    // Since isProgrammaticScroll=false and scrollTarget=null, this goes straight to
+    // the user-scroll branch and sets userHasScrolled = true.
     const scrollView = getByTestId('matched-text-scrollview');
-    scrollView.props.onScroll();
+    scrollView.props.onScroll({ nativeEvent: { contentOffset: { y: 50 } } });
 
-    // Clear any scroll calls from before
+    // Now fire onLayout — highlightYPosition.current gets set to 100, but since
+    // userHasScrolled is already true, handleHighlightLayout skips the scrollTo call.
+    fireHighlightLayout(renderResult, 100);
+
+    // Clear any scroll calls (just in case)
     scrollToMock.mockClear();
 
     // Change highlight position (normally would trigger auto-scroll)
@@ -220,14 +221,12 @@ describe('MatchedTextWidget - Auto-Scroll', () => {
       )
     );
 
-    // Wait for any potential async scroll calls
-    // Note: In real scenario, scrollTo should NOT be called
-    // This verifies user scroll state is preserved
-    expect(scrollView).toBeTruthy();
+    // scrollTo should NOT be called — user has manually scrolled
+    expect(scrollToMock).not.toHaveBeenCalled();
   });
 
   test('resumes auto-scroll when recording starts after user scroll', () => {
-    const { rerender, getByTestId } = renderWithTheme(
+    const renderResult = renderWithTheme(
       <MatchedTextWidget
         matchedDocument={mockDocument}
         fullContent={mockFullContent}
@@ -238,12 +237,18 @@ describe('MatchedTextWidget - Auto-Scroll', () => {
         isRecording={false}
       />
     );
+    const { rerender, getByTestId } = renderResult;
 
-    // User manually scrolls
+    // Simulate user manual scroll FIRST (before onLayout), so userHasScrolled = true
+    // without triggering the isProgrammaticScroll guard.
     const scrollView = getByTestId('matched-text-scrollview');
-    scrollView.props.onScroll();
+    scrollView.props.onScroll({ nativeEvent: { contentOffset: { y: 50 } } });
 
-    // Start recording (should reset user scroll flag)
+    // Fire onLayout to set highlightYPosition.current — scrollTo skipped (userHasScrolled=true)
+    fireHighlightLayout(renderResult, 100);
+    scrollToMock.mockClear();
+
+    // Start recording (false → true transition resets userHasScrolled flag)
     rerender(
       wrapWithTheme(
         <MatchedTextWidget
@@ -260,7 +265,7 @@ describe('MatchedTextWidget - Auto-Scroll', () => {
 
     scrollToMock.mockClear();
 
-    // Change highlight position (should auto-scroll again)
+    // Change highlight position — auto-scroll should be re-enabled
     rerender(
       wrapWithTheme(
         <MatchedTextWidget
@@ -275,15 +280,15 @@ describe('MatchedTextWidget - Auto-Scroll', () => {
       )
     );
 
-    // Auto-scroll should be re-enabled
-    expect(scrollView).toBeTruthy();
+    // scrollTo SHOULD be called — recording start reset the scroll flag
+    expect(scrollToMock).toHaveBeenCalledWith({ y: 80, animated: true });
   });
 
   test('resumes auto-scroll when document changes after user scroll', () => {
     const document1 = { ...mockDocument, docId: 'doc1', section: 'Section 1' };
     const document2 = { ...mockDocument, docId: 'doc2', section: 'Section 2' };
 
-    const { rerender, getByTestId } = renderWithTheme(
+    const renderResult = renderWithTheme(
       <MatchedTextWidget
         matchedDocument={document1}
         fullContent={mockFullContent}
@@ -294,12 +299,18 @@ describe('MatchedTextWidget - Auto-Scroll', () => {
         isRecording={false}
       />
     );
+    const { rerender, getByTestId } = renderResult;
 
-    // User manually scrolls
+    // Simulate user manual scroll FIRST (before onLayout), so userHasScrolled = true
+    // without triggering the isProgrammaticScroll guard.
     const scrollView = getByTestId('matched-text-scrollview');
-    scrollView.props.onScroll();
+    scrollView.props.onScroll({ nativeEvent: { contentOffset: { y: 50 } } });
 
-    // Change to different document (should reset user scroll flag)
+    // Fire onLayout to set highlightYPosition.current — scrollTo skipped (userHasScrolled=true)
+    fireHighlightLayout(renderResult, 100);
+    scrollToMock.mockClear();
+
+    // Change to different document — resets both userHasScrolled AND highlightYPosition to null
     rerender(
       wrapWithTheme(
         <MatchedTextWidget
@@ -314,8 +325,28 @@ describe('MatchedTextWidget - Auto-Scroll', () => {
       )
     );
 
-    // Auto-scroll should be re-enabled for new document
-    expect(getByTestId('matched-text-scrollview')).toBeTruthy();
+    // highlightYPosition is now null (reset by document change), so the useEffect
+    // above won't scroll yet. Fire onLayout for the new document to restore position.
+    fireHighlightLayout(renderResult, 100);
+    scrollToMock.mockClear();
+
+    // Now a highlight change should trigger scroll — user scroll flag was reset
+    rerender(
+      wrapWithTheme(
+        <MatchedTextWidget
+          matchedDocument={document2}
+          fullContent="Different document content here."
+          highlightPosition={{ start: 11, end: 20 }}
+          confidence={0.85}
+          isLoading={false}
+          isMatching={false}
+          isRecording={false}
+        />
+      )
+    );
+
+    // scrollTo SHOULD be called — document change reset the scroll flag
+    expect(scrollToMock).toHaveBeenCalledWith({ y: 80, animated: true });
   });
 
   test('scrolls when highlight position changes', () => {

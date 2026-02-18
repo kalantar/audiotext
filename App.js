@@ -26,6 +26,16 @@ const getLastWords = (text, wordCount) => {
   return words.slice(-wordCount).join(' ');
 };
 
+/**
+ * Compute stickiness threshold based on match count.
+ * Early matches (first 3) are less reliable, so allow easier switching.
+ * Once stable (3+ matches), require a significantly higher score to switch
+ * documents/sections, preventing noise-triggered jumps.
+ */
+export function computeSwitchThreshold(matchCount) {
+  return matchCount < 3 ? -0.10 : 0.15;
+}
+
 // WebSocket server configuration
 // Auto-detects platform and returns appropriate URL:
 // - Web: localhost (server running on same machine)
@@ -377,11 +387,8 @@ export default function App() {
           // Early matches (first 3) are less reliable, so easier to override
           // This allows correcting initial false positives while preventing noise jumps
           const matchCount = ctx.matchCount || 0;
-          const isEarlyMatch = matchCount < 3;
-
-          // For early matches: allow switching if score is close (within 0.10 lower is OK)
-          // For stable matches: require significantly higher score (0.15 gain) to switch
-          const SWITCH_THRESHOLD = isEarlyMatch ? -0.10 : 0.15;
+          const SWITCH_THRESHOLD = computeSwitchThreshold(matchCount);
+          const isEarlyMatch = matchCount < 3; // Kept for logging
 
           // Apply stickiness: require higher score to switch to a different section/document
           // Movement within the same section is allowed without penalty
