@@ -91,7 +91,7 @@ function generateSearchIndex(documents) {
         const ngrams = generateNgrams(para);
 
         index.documents.push({
-          id: `${doc.docId}-${section.title.substring(0, 20).replace(/\s+/g, '-').toLowerCase()}-${i}`,
+          id: `${doc.docId}-${(section.title || 'untitled').substring(0, 20).replace(/\s+/g, '-').toLowerCase()}-${i}`,
           docId: doc.docId,
           section: section.title,
           paragraphNum: i + 1,

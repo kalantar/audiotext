@@ -20,7 +20,8 @@
  * Expected behavior: UI should update to show advent-divine-justice once
  * distinctive vocabulary appears ("Seven Year Plan", "American believers")
  *
- * Run with: node tests/run-tests.mjs advent-divine-justice-seven-year-plan-test.js
+ * NOTE: This fixture is standalone (uses a different export name and object-shaped progressiveStages
+ * incompatible with run-tests.mjs). Run via runAdventDivineJusticeTest() directly or adapt to runner format.
  */
 
 export const adventDivineJusticeTestCase = {
@@ -104,7 +105,7 @@ export const adventDivineJusticeTestCase = {
     },
 
     bug2_stickiness_blocks_correction: {
-      component: 'App.js stickiness logic (lines 380-387)',
+      component: 'App.js stickiness logic (performTextMatch, computeSwitchThreshold)',
       issue: 'UI update blocked even when matcher correctly identifies right document',
       causes: [
         'Stickiness threshold (0.15) requires new score to be significantly higher',
