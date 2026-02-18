@@ -131,6 +131,7 @@ const MatchedTextWidget = ({
       debugLog('[SCROLL] Document changed:', lastDocumentKey.current, '→', currentDocumentKey, '- resetting flag');
       userHasScrolled.current = false;
       highlightYPosition.current = null;
+      scrollTarget.current = null;
     }
 
     lastDocumentKey.current = currentDocumentKey;
@@ -141,12 +142,13 @@ const MatchedTextWidget = ({
     if (isProgrammaticScroll.current && scrollTarget.current !== null) {
       const currentY = event.nativeEvent.contentOffset.y;
       if (Math.abs(currentY - scrollTarget.current) < 5) {
-        // This scroll event is from our programmatic scrollTo — ignore it
+        // Arrived at target — terminal event of our programmatic scroll
         isProgrammaticScroll.current = false;
+        scrollTarget.current = null;
         return;
       }
-      // Position doesn't match target — stale flag, treat as user scroll
-      isProgrammaticScroll.current = false;
+      // Still animating toward target — keep flag alive, don't treat as user scroll
+      return;
     }
     debugLog('[SCROLL] User manually scrolled - setting userHasScrolled = true');
     userHasScrolled.current = true;
