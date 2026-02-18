@@ -127,7 +127,7 @@ MatchedTextWidget (display with highlighting)
 - **Inline Content Flow**: Interactive elements (highlights) inline with text flow, not separate blocks.
 
 ### Interaction
-- **Auto-Focus on Content**: Matched/highlighted content automatically scrolls into view.
+- **Auto-Focus on Content**: Matched/highlighted content automatically scrolls into view, unless user has manually scrolled (respects user control). Auto-scroll resumes when recording starts or document/section changes.
 - **Responsive Design**: UI adapts to device screen size while maintaining comfortable reading experience. Maximum width constraint for readability.
 
 ### Design System
@@ -174,3 +174,4 @@ MatchedTextWidget (display with highlighting)
 - Match context tracking maintains state across matches for continuity
 - Highlight positioning uses multiple fallback strategies for robustness
 - Auto-scroll implementation uses `onLayout` callback with `requestAnimationFrame`
+- **Cross-platform scroll detection**: Use `onScroll` (not `onScrollBeginDrag`) to detect user scrolling, as `onScrollBeginDrag` only fires for touch events and misses mouse wheel/trackpad scrolling on web. Use `isProgrammaticScroll` flag to distinguish programmatic `scrollTo()` calls from user-initiated scrolls.

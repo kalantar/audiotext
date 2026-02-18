@@ -115,7 +115,8 @@ export default function App() {
     // Paragraph-based highlight tracking
     firstParagraphNum: null,  // First paragraph matched in this section
     currentParagraphNum: null, // Current/latest paragraph matched
-    matchHistory: []  // Track last 3 matches for temporal continuity
+    matchHistory: [],  // Track last 3 matches for temporal continuity
+    matchCount: 0  // Track number of matches for dynamic stickiness threshold
   });
   const audioChunksRef = useRef([]); // Circular buffer for recent audio
 
@@ -321,9 +322,6 @@ export default function App() {
   }, []);
 
   // Perform text matching (debounced)
-  // Stickiness threshold: require this much higher score to switch to different document/paragraph
-  const SWITCH_THRESHOLD = 0.15;  // require meaningful score gain to switch to different section/document
-
   const performTextMatch = useCallback(
     debounce(async (words) => {
       try {
@@ -375,15 +373,27 @@ export default function App() {
           const isSameSectionMatch = ctx.previousDocId === match.docId &&
                                      ctx.previousSection === match.section;
 
+          // Dynamic stickiness threshold: lower for early matches, higher once stable
+          // Early matches (first 3) are less reliable, so easier to override
+          // This allows correcting initial false positives while preventing noise jumps
+          const matchCount = ctx.matchCount || 0;
+          const isEarlyMatch = matchCount < 3;
+
+          // For early matches: allow switching if score is close (within 0.10 lower is OK)
+          // For stable matches: require significantly higher score (0.15 gain) to switch
+          const SWITCH_THRESHOLD = isEarlyMatch ? -0.10 : 0.15;
+
           // Apply stickiness: require higher score to switch to a different section/document
           // Movement within the same section is allowed without penalty
           if (!isSameSectionMatch && ctx.previousDocId) {
             const scoreDiff = match.score - ctx.previousScore;
             if (scoreDiff < SWITCH_THRESHOLD) {
-              console.log('[MATCH] Stickiness: staying in current section (score diff:', scoreDiff.toFixed(2), ')');
+              console.log('[MATCH] Stickiness: staying in current section (score diff:', scoreDiff.toFixed(2),
+                          '< threshold:', SWITCH_THRESHOLD, ', early match:', isEarlyMatch, ')');
               return; // Don't switch - not confident enough
             }
-            console.log('[MATCH] Moving to new section (score diff:', scoreDiff.toFixed(2), ')');
+            console.log('[MATCH] Moving to new section (score diff:', scoreDiff.toFixed(2),
+                        ', threshold:', SWITCH_THRESHOLD, ', early match:', isEarlyMatch, ')');
           }
 
           console.log('[MATCH] Match found:', match.docId, match.section, 'paragraphNum:', match.paragraphNum, 'score:', match.score.toFixed(2));
@@ -462,7 +472,8 @@ export default function App() {
               previousScore: match.score,
               firstParagraphNum: firstParagraphIndex + 1,  // Store as 1-indexed
               currentParagraphNum: match.paragraphNum,
-              matchHistory: updatedHistory
+              matchHistory: updatedHistory,
+              matchCount: (matchContextRef.current.matchCount || 0) + 1  // Track number of matches
             };
 
             // Get metadata
@@ -602,7 +613,8 @@ export default function App() {
         previousScore: 0,
         firstParagraphNum: null,
         currentParagraphNum: null,
-        matchHistory: []
+        matchHistory: [],
+        matchCount: 0  // Reset match counter
       };
       setMatchState({
         isLoading: false,
@@ -1018,6 +1030,7 @@ export default function App() {
               isLoading={matchState.isLoading}
               confidence={matchState.confidence}
               isMatching={isMatching}
+              isRecording={isRecording}
             />
           </View>
 
