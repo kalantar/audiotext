@@ -388,13 +388,13 @@ export default function App() {
           if (!isSameSectionMatch && ctx.previousDocId) {
             const scoreDiff = match.score - ctx.previousScore;
             if (scoreDiff < SWITCH_THRESHOLD) {
-              console.log('[MATCH] Stickiness: staying in current section (score diff:', scoreDiff.toFixed(2),
-                          '< threshold:', SWITCH_THRESHOLD, ', early match:', isEarlyMatch, ')');
+              debugLog('[MATCH] Stickiness: staying in current section (score diff:', scoreDiff.toFixed(2),
+                       '< threshold:', SWITCH_THRESHOLD, ', early match:', isEarlyMatch, ')');
               matchContextRef.current = { ...ctx, matchCount: matchCount + 1 };
               return; // Don't switch - not confident enough
             }
-            console.log('[MATCH] Moving to new section (score diff:', scoreDiff.toFixed(2),
-                        ', threshold:', SWITCH_THRESHOLD, ', early match:', isEarlyMatch, ')');
+            debugLog('[MATCH] Moving to new section (score diff:', scoreDiff.toFixed(2),
+                     ', threshold:', SWITCH_THRESHOLD, ', early match:', isEarlyMatch, ')');
           }
 
           console.log('[MATCH] Match found:', match.docId, match.section, 'paragraphNum:', match.paragraphNum, 'score:', match.score.toFixed(2));
