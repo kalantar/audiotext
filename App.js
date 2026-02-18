@@ -390,6 +390,7 @@ export default function App() {
             if (scoreDiff < SWITCH_THRESHOLD) {
               console.log('[MATCH] Stickiness: staying in current section (score diff:', scoreDiff.toFixed(2),
                           '< threshold:', SWITCH_THRESHOLD, ', early match:', isEarlyMatch, ')');
+              matchContextRef.current = { ...ctx, matchCount: matchCount + 1 };
               return; // Don't switch - not confident enough
             }
             console.log('[MATCH] Moving to new section (score diff:', scoreDiff.toFixed(2),
@@ -473,7 +474,7 @@ export default function App() {
               firstParagraphNum: firstParagraphIndex + 1,  // Store as 1-indexed
               currentParagraphNum: match.paragraphNum,
               matchHistory: updatedHistory,
-              matchCount: (matchContextRef.current.matchCount || 0) + 1  // Track number of matches
+              matchCount: (ctx.matchCount || 0) + 1  // Track number of matches
             };
 
             // Get metadata
@@ -495,6 +496,9 @@ export default function App() {
             setMatchState(prev => ({ ...prev, isLoading: false }));
           }
         }
+      } catch (err) {
+        debugLog('[MATCH] Error in performTextMatch:', err.message);
+        setMatchState(prev => ({ ...prev, isLoading: false }));
       } finally {
         setIsMatching(false);
       }
