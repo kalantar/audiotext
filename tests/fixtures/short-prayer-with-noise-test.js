@@ -20,6 +20,12 @@ export const testCase = {
     paragraphNum: 3
   },
 
+  // This prayer appears verbatim in multiple documents — either is a valid match
+  acceptableMatches: [
+    { docId: 'prayers-meditations', paragraphNum: 3 },
+    { docId: 'bahai-prayers', paragraphNum: 721 }
+  ],
+
   // Actual paragraph text for reference
   correctParagraphText: `Glorified art Thou, O Lord my God! Every man of insight confesseth Thy sovereignty and Thy dominion, and every discerning eye perceiveth the greatness of Thy majesty and the compelling power of Thy might. The winds of tests are powerless to hold back them that enjoy near access to Thee from setting their faces towards the horizon of Thy glory, and the tempests of trials must fail to draw away and hinder such as are wholly devoted to Thy will from approaching Thy court.`,
 
