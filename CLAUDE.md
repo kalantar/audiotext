@@ -27,8 +27,10 @@ npm start                  # Start WebSocket server on port 2700
 
 ### Text Crawling (optional)
 ```bash
-node scripts/crawl-bahai-library.js   # Download texts from bahai.org/library
+node scripts/crawl-bahai-library.cjs   # Download texts from bahai.org/library
 ```
+
+See `docs/crawler-guide.md` for comprehensive documentation on crawling, configuration, and troubleshooting.
 
 ## Architecture
 
@@ -47,8 +49,8 @@ MatchedTextWidget (display with highlighting)
   - **Web**: MediaRecorder API with WebM → converts to 16kHz mono PCM via Web Audio API → streams 500ms chunks
   - **Native (iOS/Android)**: Records WAV → sends complete file as 8KB PCM chunks after recording stops
 - Displays split view:
-  - **Left side**: Last 50 words of accumulated transcription
-  - **Right side**: Matched text with highlighted passage (MatchedTextWidget)
+  - **Reading surface**: Full-width matched text display (MatchedTextWidget) with paper-like card layout
+  - **Debug panel**: Transcription output and logs, accessible via Appbar bug icon (modal overlay)
 - Real-time text matching as transcription updates
 
 ### Backend (server.js)
@@ -63,7 +65,7 @@ MatchedTextWidget (display with highlighting)
 - **N-gram similarity** (3, 4, 5-word sequences) weighted at 30%
 - **Temporal continuity**: Tracks last 3 matched paragraphs to detect sequential reading patterns
 - **Neighborhood bonus**: When sequential progression is detected, boosts scores for nearby paragraphs (+0.10 for ±1-3, +0.15 for exact prediction)
-- **Stickiness threshold**: 0.15 score differential required to switch documents/sections (prevents jumping on noise)
+- **Stickiness threshold**: Dynamic — -0.10 for early matches (first 3) to allow correcting false positives; 0.15 for stable matches to prevent noise-triggered jumps
 - **Robust section lookup**: Normalizes titles (trim + lowercase), handles duplicate section names by picking section with enough paragraphs
 - Match threshold: 0.08 (very low for noisy speech-to-text)
 - Returns best match with confidence score and metadata
@@ -82,23 +84,24 @@ MatchedTextWidget (display with highlighting)
 - **`public/texts/{doc-id}.json`**: Full document content with metadata
 - Texts include: Kitáb-i-Aqdas, Kitáb-i-Íqán, Hidden Words, Gleanings, Prayers & Meditations, etc.
 
-### Web Crawler (scripts/crawl-bahai-library.js)
+### Web Crawler (scripts/crawl-bahai-library.cjs)
 - Downloads texts from bahai.org/library
 - Fetches .xhtml versions (complete HTML in one file)
 - Extracts metadata, sections, paragraphs, verses
 - Generates search index with tokenized n-grams
-- Saves individual document JSON files
+- Saves to both `assets/` (for native) and `public/` (for web)
+- Individual document JSON files: `{doc-id}.json`
 
 ## Key Technical Details
 
 - **Audio format for Vosk**: 16-bit signed PCM, 16kHz, mono
 - **Node.js version**: v18 recommended (v20+ may have Vosk native module issues)
 - Use `debugLog()` helper for dev-only logging (checks `__DEV__`)
-- WebSocket sends use `sendSafe()` to check connection state before sending
+- WebSocket sends: server uses `sendSafe()` to check connection state; App.js checks `wsRef.current.readyState === WebSocket.OPEN` inline before each send
 - Text matching runs **debounced** to avoid excessive computation
 - Match algorithm uses **fuzzy token overlap** (50% weight) + **n-gram similarity** (30% weight) + **neighborhood bonus** (0.10-0.15 when sequential progression detected)
 - Text matching uses a **45-word sliding window** instead of all accumulated words to enable paragraph progression
-- Audio chunks sent to Vosk every **500ms** for faster transcription response
+- Audio chunks sent to Vosk every **~250ms** for faster transcription response
 
 ## Coding Conventions
 
@@ -124,7 +127,7 @@ MatchedTextWidget (display with highlighting)
 - **Inline Content Flow**: Interactive elements (highlights) inline with text flow, not separate blocks.
 
 ### Interaction
-- **Auto-Focus on Content**: Matched/highlighted content automatically scrolls into view.
+- **Auto-Focus on Content**: Matched/highlighted content automatically scrolls into view, unless user has manually scrolled (respects user control). Auto-scroll resumes when recording starts or document/section changes.
 - **Responsive Design**: UI adapts to device screen size while maintaining comfortable reading experience. Maximum width constraint for readability.
 
 ### Design System
@@ -171,3 +174,4 @@ MatchedTextWidget (display with highlighting)
 - Match context tracking maintains state across matches for continuity
 - Highlight positioning uses multiple fallback strategies for robustness
 - Auto-scroll implementation uses `onLayout` callback with `requestAnimationFrame`
+- **Cross-platform scroll detection**: Use `onScroll` (not `onScrollBeginDrag`) to detect user scrolling, as `onScrollBeginDrag` only fires for touch events and misses mouse wheel/trackpad scrolling on web. Use `isProgrammaticScroll` flag to distinguish programmatic `scrollTo()` calls from user-initiated scrolls.
