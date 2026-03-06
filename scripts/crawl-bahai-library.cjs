@@ -446,6 +446,8 @@ function generateSearchIndex(documents) {
   // Build prefix-based inverted index: token prefix → array of document indices.
   // Use a seen Set per document to avoid pushing the same index twice when a
   // document has multiple tokens sharing the same prefix (e.g. "manifest", "manifestation").
+  // Note: only the first 30 tokens per paragraph are indexed (see tokens.slice(0, 30) above);
+  // tokens beyond position 30 are silently excluded even if they carry unique prefixes.
   const tokenIndex = {};
   for (let i = 0; i < index.documents.length; i++) {
     const seenPrefixes = new Set();

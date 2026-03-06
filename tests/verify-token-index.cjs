@@ -13,8 +13,8 @@ console.log('Sample entry "mani":', index.tokenIndex['mani']?.slice(0, 5));
 console.log('Sample entry "righ":', index.tokenIndex['righ']?.slice(0, 5));
 console.log('Sample entry "glor":', index.tokenIndex['glor']?.slice(0, 5));
 
-if (keys.length < 1000) {
-  console.error('FAIL: tokenIndex seems too small, expected > 1000 keys, got:', keys.length);
+if (keys.length < 4000) {
+  console.error('FAIL: tokenIndex seems too small, expected > 4000 keys, got:', keys.length);
   process.exit(1);
 }
 

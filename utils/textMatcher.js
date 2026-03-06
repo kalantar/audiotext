@@ -17,9 +17,9 @@ const MAX_LEVENSHTEIN_DISTANCE = 2;
 const PREFIX_LENGTH = 4;
 
 // Dev mode flag and logging helper
-const __DEV__ = typeof process !== 'undefined' && process.env.NODE_ENV !== 'production';
+// Use Metro's global __DEV__ if available (React Native/Expo), otherwise silent in production
 function debugLog(...args) {
-  if (__DEV__) console.log(...args);
+  if (typeof __DEV__ !== 'undefined' ? __DEV__ : false) console.log(...args);
 }
 
 // Dev-only match stats (module-level to avoid mutating the shared searchIndex object)
@@ -242,7 +242,7 @@ function hasMinimalOverlap(searchSignature, docTokens, threshold = 0.15) {
 /**
  * Find best matching document entry for given transcribed words
  *
- * @param {string[]} words - Array of transcribed words from the sliding window (typically ~45 words, minimum 8)
+ * @param {string[]} words - Array of transcribed words from the sliding window (typically ~45 words). Returns null if fewer than 8 words are provided.
  * @param {Object} searchIndex - The loaded search index
  * @param {Object} context - Previous match context for continuity
  * @returns {Object|null} - Best match with score, or null if no good match
@@ -273,7 +273,7 @@ export function findBestMatch(words, searchIndex, context = {}, prediction = nul
       }
     }
     candidates = [...candidateIndices].map(i => searchIndex.documents[i]);
-    if (__DEV__) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
       _matchStats.indexHits++;
       _matchStats.totalCandidates += candidates.length;
       debugLog('[MATCH] Pass 1 (index): ' + candidates.length + ' candidates | hits=' + _matchStats.indexHits + ' fallbacks=' + _matchStats.fallbacks + ' avgCandidates=' + (_matchStats.totalCandidates / _matchStats.indexHits).toFixed(0));
@@ -281,7 +281,7 @@ export function findBestMatch(words, searchIndex, context = {}, prediction = nul
   } else {
     const searchSignature = computeTokenSignature(searchTokens);
     candidates = searchIndex.documents.filter(doc => hasMinimalOverlap(searchSignature, doc.tokens, 0.10));
-    if (__DEV__) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
       _matchStats.fallbacks++;
       debugLog('[MATCH] Pass 1 (linear fallback): ' + candidates.length + ' candidates | hits=' + _matchStats.indexHits + ' fallbacks=' + _matchStats.fallbacks);
     }

@@ -8,11 +8,15 @@ const PREFIX_LENGTH = 4;
 function buildTokenIndex(documents) {
   const tokenIndex = {};
   for (let i = 0; i < documents.length; i++) {
+    const seenPrefixes = new Set();
     for (const token of documents[i].tokens) {
       if (token.length >= PREFIX_LENGTH) {
         const prefix = token.substring(0, PREFIX_LENGTH);
-        if (!tokenIndex[prefix]) tokenIndex[prefix] = [];
-        tokenIndex[prefix].push(i);
+        if (!seenPrefixes.has(prefix)) {
+          seenPrefixes.add(prefix);
+          if (!tokenIndex[prefix]) tokenIndex[prefix] = [];
+          tokenIndex[prefix].push(i);
+        }
       }
     }
   }
@@ -60,6 +64,17 @@ if (Object.keys(idx2).length !== 0) {
   passed = false;
 } else {
   console.log('PASS: short tokens (< PREFIX_LENGTH) are skipped');
+}
+
+// Deduplication: a doc with two tokens sharing a prefix should appear only once
+const docs3 = [{ id: 'doc-0', tokens: ['manifest', 'manifestation', 'power'] }];
+const idx3 = buildTokenIndex(docs3);
+const maniDedup = idx3['mani'];
+if (!maniDedup || maniDedup.length !== 1 || maniDedup[0] !== 0) {
+  console.error('FAIL: within-document deduplication failed — mani should appear once, got:', maniDedup);
+  passed = false;
+} else {
+  console.log('PASS: within-document deduplication works (manifest + manifestation → mani appears once)');
 }
 
 console.log(passed ? '\nAll tests passed.' : '\nSome tests FAILED.');

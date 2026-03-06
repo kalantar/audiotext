@@ -189,5 +189,5 @@ MatchedTextWidget (display with highlighting)
 - `firstParagraphNum` in `highlightPosition`: changes when a non-contiguous match occurs, triggering a `useEffect` that resets `userHasScrolled`.
 
 **Known pitfalls — do not reintroduce these:**
-- **DO NOT** add a `useEffect` that calls `scrollTo` when `highlightPosition` changes. `highlightPosition` is a new object on every render (every ~500ms match), so the effect fires constantly, keeping `isProgrammaticScroll=true` indefinitely and preventing `userHasScrolled` from ever being set.
+- **DO NOT** add a `useEffect` that calls `scrollTo` when `highlightPosition` changes. `highlightPosition` is a new object on every render (every ~500ms match), so the effect fires constantly, keeping `isProgrammaticScroll=true` indefinitely — every `onScroll` event is then attributed to programmatic scrolling, so `userHasScrolled` can never be set by genuine user interaction.
 - **DO NOT** use `onScrollBeginDrag` to detect user scroll — it only fires on native touch drag, not mouse wheel on web.
