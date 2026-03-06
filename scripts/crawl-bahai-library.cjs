@@ -486,17 +486,42 @@ async function main() {
     }
   }
 
-  // Generate and save search index to both locations
+  // Generate and save search index from ALL files on disk (not just this run)
+  // This ensures partial crawls are additive — previously-crawled docs are never dropped
   console.log('\n' + '='.repeat(50));
+  console.log('Loading all existing text files from disk...');
+
+  const allDocsMap = new Map();
+
+  // Load all existing text files first
+  const existingFiles = await fs.readdir(PUBLIC_TEXTS_DIR);
+  for (const file of existingFiles) {
+    if (!file.endsWith('.json')) continue;
+    try {
+      const content = JSON.parse(await fs.readFile(path.join(PUBLIC_TEXTS_DIR, file), 'utf8'));
+      if (content.docId) allDocsMap.set(content.docId, content);
+    } catch (err) {
+      console.error(`  Warning: could not read ${file}: ${err.message}`);
+    }
+  }
+  console.log(`  Loaded ${allDocsMap.size} existing documents from disk`);
+
+  // Override with freshly-crawled docs (they're up to date)
+  for (const doc of crawledDocs) {
+    allDocsMap.set(doc.docId, doc);
+  }
+  console.log(`  Total after merge: ${allDocsMap.size} documents`);
+
   console.log('Generating search index...');
-  const searchIndex = generateSearchIndex(crawledDocs);
+  const searchIndex = generateSearchIndex([...allDocsMap.values()]);
   const indexJson = JSON.stringify(searchIndex, null, 2);
 
   await fs.writeFile(ASSETS_INDEX_FILE, indexJson);
   await fs.writeFile(PUBLIC_INDEX_FILE, indexJson);
 
   console.log(`\nComplete!`);
-  console.log(`  Documents crawled: ${crawledDocs.length}`);
+  console.log(`  Documents crawled this run: ${crawledDocs.length}`);
+  console.log(`  Total documents in index: ${allDocsMap.size}`);
   console.log(`  Index entries: ${searchIndex.documents.length}`);
   console.log(`  Assets: ${ASSETS_INDEX_FILE}`);
   console.log(`  Public: ${PUBLIC_INDEX_FILE}`);
