@@ -385,11 +385,17 @@ async function crawlDocument(doc) {
     const totalParagraphs = sections.reduce((sum, s) => sum + s.paragraphs.length, 0);
     console.log(`  Extracted ${sections.length} sections, ${totalParagraphs} paragraphs`);
 
+    // UHJ messages: doc.path ends with .../messages/{id}/ but the valid web URL appends 1
+    const isMessage = /^\d{8}_\d{3}$/.test(doc.id);
+    const url = isMessage
+      ? `${BASE_URL}${doc.path}1`
+      : `${BASE_URL}${doc.path}`;
+
     return {
       docId: doc.id,
       title: metadata.title || doc.title,
       author: metadata.author || 'Unknown',
-      url: BASE_URL + doc.path,
+      url,
       xhtmlUrl: BASE_URL + doc.xhtmlUrl,
       category: doc.category,
       fetchDate: new Date().toISOString(),
