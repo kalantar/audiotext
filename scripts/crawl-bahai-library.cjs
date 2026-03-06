@@ -404,6 +404,8 @@ async function crawlDocument(doc) {
 /**
  * Generate search index from crawled documents
  */
+const PREFIX_LENGTH = 4; // must match PREFIX_LENGTH in utils/textMatcher.js
+
 function generateSearchIndex(documents) {
   const index = {
     version: '1.0.0',
@@ -440,6 +442,19 @@ function generateSearchIndex(documents) {
       }
     }
   }
+
+  // Build prefix-based inverted index: token prefix → array of document indices
+  const tokenIndex = {};
+  for (let i = 0; i < index.documents.length; i++) {
+    for (const token of index.documents[i].tokens) {
+      if (token.length >= PREFIX_LENGTH) {
+        const prefix = token.substring(0, PREFIX_LENGTH);
+        if (!tokenIndex[prefix]) tokenIndex[prefix] = [];
+        tokenIndex[prefix].push(i);
+      }
+    }
+  }
+  index.tokenIndex = tokenIndex;
 
   return index;
 }
