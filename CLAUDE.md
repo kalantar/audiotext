@@ -174,3 +174,20 @@ MatchedTextWidget (display with highlighting)
 - Match context tracking maintains state across matches for continuity
 - Highlight positioning uses multiple fallback strategies for robustness
 - Auto-scroll implementation uses `onLayout` callback with `requestAnimationFrame`
+
+### Auto-Scroll Behavior (MatchedTextWidget)
+
+**Rules:**
+1. When a new highlight appears, auto-scroll to it — unless the user has manually scrolled
+2. Once the user scrolls, suppress all auto-scroll for the rest of the session
+3. Reset (re-enable auto-scroll) only when the highlight anchor changes — i.e. a non-contiguous match starts a new reading session (`firstParagraphNum` changes)
+
+**Implementation:**
+- `onLayout` on the highlighted `<Text>` is the **only** scroll trigger. It fires when the highlighted text's layout changes (content or position shifts).
+- `userHasScrolled` ref: set to `true` by `onScroll` when user scrolls; suppresses `onLayout`-triggered scroll.
+- `isProgrammaticScroll` ref + 400ms timer: set before calling `scrollTo`, cleared after animation settles. Prevents `onScroll` from misidentifying programmatic scrolls as user input.
+- `firstParagraphNum` in `highlightPosition`: changes when a non-contiguous match occurs, triggering a `useEffect` that resets `userHasScrolled`.
+
+**Known pitfalls — do not reintroduce these:**
+- **DO NOT** add a `useEffect` that calls `scrollTo` when `highlightPosition` changes. `highlightPosition` is a new object on every render (every ~500ms match), so the effect fires constantly, keeping `isProgrammaticScroll=true` indefinitely and preventing `userHasScrolled` from ever being set.
+- **DO NOT** use `onScrollBeginDrag` to detect user scroll — it only fires on native touch drag, not mouse wheel on web.

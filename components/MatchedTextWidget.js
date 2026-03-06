@@ -108,7 +108,11 @@ const MatchedTextWidget = ({
   const isProgrammaticScroll = useRef(false);
   const programmaticScrollTimer = useRef(null);
 
-  // Reset user scroll flag when highlight anchor changes (non-contiguous match or new session)
+  // Reset userHasScrolled when the highlight anchor changes (non-contiguous match / new session).
+  // highlightPosition is a new object on every render, so this effect fires often —
+  // but only acts when firstParagraphNum actually changes.
+  // WARNING: do NOT call scrollTo from this effect. highlightPosition changes every ~500ms,
+  // so any scrollTo here will fire constantly and prevent userHasScrolled from ever being set.
   useEffect(() => {
     const firstParagraphNum = highlightPosition?.firstParagraphNum;
     if (firstParagraphNum !== prevFirstParagraphNum.current) {
@@ -118,7 +122,8 @@ const MatchedTextWidget = ({
     }
   }, [highlightPosition]);
 
-  // Scroll programmatically — sets a flag so onScroll doesn't misidentify it as user input
+  // Scroll programmatically — sets a flag so onScroll doesn't misidentify it as user input.
+  // The 400ms timer gives the animated scroll time to settle before clearing the flag.
   const scrollToHighlight = useCallback((y) => {
     debugLog('[SCROLL] Programmatic scroll to y=' + Math.round(y));
     isProgrammaticScroll.current = true;
@@ -130,7 +135,11 @@ const MatchedTextWidget = ({
     }, 400);
   }, []);
 
-  // Handle layout of highlighted text to capture its position
+  // onLayout on the highlighted <Text> is the ONLY scroll trigger.
+  // It fires when the highlighted text's layout changes (content shifts, new paragraph added).
+  // It does NOT fire on every render — only when layout actually changes.
+  // WARNING: do NOT add a useEffect([highlightPosition]) that calls scrollTo.
+  // WARNING: do NOT use onScrollBeginDrag — it doesn't fire for mouse wheel on web.
   const handleHighlightLayout = useCallback((event) => {
     const { y } = event.nativeEvent.layout;
     const prev = highlightYPosition.current;
