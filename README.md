@@ -97,3 +97,10 @@ This project uses Expo's managed workflow, which provides:
 - [Expo Documentation](https://docs.expo.dev/)
 - [React Native Documentation](https://reactnative.dev/)
 - [Expo Audio Documentation](https://docs.expo.dev/versions/latest/sdk/av/)
+
+## Ideas
+
+- Allow users to search writings
+- text to voice ?
+- highlight just the parts read
+- allow reading to start in the middel of a paragrpahs

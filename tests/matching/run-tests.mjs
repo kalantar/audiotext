@@ -28,7 +28,8 @@ const testFiles = specificTest ? [specificTest] : [
   '../fixtures/unique-text-kit-b-i-q-n-noah-story-test.js',
   '../fixtures/common-phrase-o-son-of-arabic-1-test.js',
   '../fixtures/long-text-epistle-mid-paragraph-test.js',
-  '../fixtures/short-prayer-with-noise-test.js'
+  '../fixtures/short-prayer-with-noise-test.js',
+  '../fixtures/iqan-paragraph-79-oscillation-test.js'
 ];
 
 console.log('='.repeat(70));
