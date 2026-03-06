@@ -347,7 +347,7 @@ export function findBestMatch(words, searchIndex, context = {}, prediction = nul
 
   // Log top matches for debugging
   if (debugTopMatches.length > 0) {
-    console.log('[MATCH] Top 3 candidates:', debugTopMatches.map(m =>
+    debugLog('[MATCH] Top 3 candidates:', debugTopMatches.map(m =>
       `${m.docId.substring(0, 30)}(t=${m.tokenScore.toFixed(2)},n=${m.ngramScore.toFixed(2)},s=${m.score.toFixed(2)})`
     ).join(', '));
   }
@@ -357,7 +357,7 @@ export function findBestMatch(words, searchIndex, context = {}, prediction = nul
     return bestMatch;
   }
 
-  console.log('[MATCH] Best score', bestScore.toFixed(3), 'below threshold', MATCH_THRESHOLD);
+  debugLog('[MATCH] Best score', bestScore.toFixed(3), 'below threshold', MATCH_THRESHOLD);
   return null;
 }
 
