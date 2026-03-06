@@ -385,7 +385,7 @@ async function crawlDocument(doc) {
     const totalParagraphs = sections.reduce((sum, s) => sum + s.paragraphs.length, 0);
     console.log(`  Extracted ${sections.length} sections, ${totalParagraphs} paragraphs`);
 
-    // UHJ messages have path .../messages/{id}/ but the valid web URL requires .../messages/{id}/1
+    // UHJ messages: doc.path ends with .../messages/{id}/ but the valid web URL appends 1
     const isMessage = /^\d{8}_\d{3}$/.test(doc.id);
     const url = isMessage
       ? `${BASE_URL}${doc.path}1`
