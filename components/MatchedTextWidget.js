@@ -24,11 +24,8 @@ import {
   useTheme
 } from 'react-native-paper';
 
-const debugLog = (...args) => {
-  if (__DEV__) {
-    console.log(...args);
-  }
-};
+// Use Metro's global __DEV__ if available (React Native/Expo), otherwise always log
+function debugLog(...args) { if (typeof __DEV__ !== 'undefined' ? __DEV__ : true) console.log(...args); }
 
 /**
  * Document Header Component

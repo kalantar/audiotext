@@ -13,6 +13,18 @@ const MATCH_THRESHOLD = 0.08;
 // Maximum Levenshtein distance to consider words as matching
 const MAX_LEVENSHTEIN_DISTANCE = 2;
 
+// Prefix length for inverted index lookup — must match PREFIX_LENGTH in crawl-bahai-library.cjs
+const PREFIX_LENGTH = 4;
+
+// Dev mode flag and logging helper
+// Use Metro's global __DEV__ if available (React Native/Expo), otherwise silent in production
+function debugLog(...args) {
+  if (typeof __DEV__ !== 'undefined' ? __DEV__ : false) console.log(...args);
+}
+
+// Dev-only match stats (module-level to avoid mutating the shared searchIndex object)
+const _matchStats = { indexHits: 0, fallbacks: 0, totalCandidates: 0 };
+
 // Stop words to exclude from matching
 const STOP_WORDS = new Set([
   'a', 'an', 'the', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'be', 'been',
@@ -211,7 +223,8 @@ function computeTokenSignature(tokens) {
 
 /**
  * Check if document has minimal token overlap for pre-screening
- * Returns true if document should be considered (>=15% signature overlap)
+ * Returns true if document should be considered (>= threshold signature overlap).
+ * Default threshold is 0.15 but the linear fallback call site passes 0.10.
  */
 function hasMinimalOverlap(searchSignature, docTokens, threshold = 0.15) {
   if (searchSignature.size === 0) return false;
@@ -229,7 +242,7 @@ function hasMinimalOverlap(searchSignature, docTokens, threshold = 0.15) {
 /**
  * Find best matching document entry for given transcribed words
  *
- * @param {string[]} words - Array of transcribed words (last 10-20 words)
+ * @param {string[]} words - Array of transcribed words from the sliding window (typically ~45 words). Returns null if fewer than 8 words are provided.
  * @param {Object} searchIndex - The loaded search index
  * @param {Object} context - Previous match context for continuity
  * @returns {Object|null} - Best match with score, or null if no good match
@@ -242,15 +255,35 @@ export function findBestMatch(words, searchIndex, context = {}, prediction = nul
   const searchTokens = tokenize(words.join(' '));
   const searchNgrams = generateNgrams(words.map(w => w.toLowerCase()));
 
-  // PASS 1: Pre-screening with token signatures
-  // Quickly filter out 70-80% of documents that have minimal token overlap
-  // Lower threshold (10%) to tolerate noisy speech recognition
-  const searchSignature = computeTokenSignature(searchTokens);
-  const candidates = [];
+  // PASS 1: Prefix index lookup — fast path when tokenIndex is available
+  // Falls back to linear pre-screening scan for old index files without tokenIndex.
+  // NOTE: tokens shorter than PREFIX_LENGTH (4 chars) are skipped by the index path.
+  // Passages composed mostly of short meaningful words (e.g. "O God thy mercy")
+  // may produce zero candidates and return null even when a match exists.
+  // This is a known limitation; the 45-word window makes it rare in practice.
+  let candidates;
 
-  for (const doc of searchIndex.documents) {
-    if (hasMinimalOverlap(searchSignature, doc.tokens, 0.10)) {
-      candidates.push(doc);
+  if (searchIndex.tokenIndex) {
+    const candidateIndices = new Set();
+    for (const token of searchTokens) {
+      if (token.length >= PREFIX_LENGTH) {
+        const prefix = token.substring(0, PREFIX_LENGTH);
+        const list = searchIndex.tokenIndex[prefix];
+        if (list) list.forEach(i => candidateIndices.add(i));
+      }
+    }
+    candidates = [...candidateIndices].map(i => searchIndex.documents[i]);
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      _matchStats.indexHits++;
+      _matchStats.totalCandidates += candidates.length;
+      debugLog('[MATCH] Pass 1 (index): ' + candidates.length + ' candidates | hits=' + _matchStats.indexHits + ' fallbacks=' + _matchStats.fallbacks + ' avgCandidates=' + (_matchStats.totalCandidates / _matchStats.indexHits).toFixed(0));
+    }
+  } else {
+    const searchSignature = computeTokenSignature(searchTokens);
+    candidates = searchIndex.documents.filter(doc => hasMinimalOverlap(searchSignature, doc.tokens, 0.10));
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      _matchStats.fallbacks++;
+      debugLog('[MATCH] Pass 1 (linear fallback): ' + candidates.length + ' candidates | hits=' + _matchStats.indexHits + ' fallbacks=' + _matchStats.fallbacks);
     }
   }
 
@@ -319,7 +352,7 @@ export function findBestMatch(words, searchIndex, context = {}, prediction = nul
 
   // Log top matches for debugging
   if (debugTopMatches.length > 0) {
-    console.log('[MATCH] Top 3 candidates:', debugTopMatches.map(m =>
+    debugLog('[MATCH] Top 3 candidates:', debugTopMatches.map(m =>
       `${m.docId.substring(0, 30)}(t=${m.tokenScore.toFixed(2)},n=${m.ngramScore.toFixed(2)},s=${m.score.toFixed(2)})`
     ).join(', '));
   }
@@ -329,7 +362,7 @@ export function findBestMatch(words, searchIndex, context = {}, prediction = nul
     return bestMatch;
   }
 
-  console.log('[MATCH] Best score', bestScore.toFixed(3), 'below threshold', MATCH_THRESHOLD);
+  debugLog('[MATCH] Best score', bestScore.toFixed(3), 'below threshold', MATCH_THRESHOLD);
   return null;
 }
 

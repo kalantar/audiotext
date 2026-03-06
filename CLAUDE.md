@@ -175,3 +175,20 @@ MatchedTextWidget (display with highlighting)
 - Highlight positioning uses multiple fallback strategies for robustness
 - Auto-scroll implementation uses `onLayout` callback with `requestAnimationFrame`
 - **Cross-platform scroll detection**: Use `onScroll` (not `onScrollBeginDrag`) to detect user scrolling, as `onScrollBeginDrag` only fires for touch events and misses mouse wheel/trackpad scrolling on web. Use `isProgrammaticScroll` flag to distinguish programmatic `scrollTo()` calls from user-initiated scrolls.
+
+### Auto-Scroll Behavior (MatchedTextWidget)
+
+**Rules:**
+1. When a new highlight appears, auto-scroll to it — unless the user has manually scrolled
+2. Once the user scrolls, suppress all auto-scroll for the rest of the session
+3. Reset (re-enable auto-scroll) when recording starts or when the matched document/section changes
+
+**Implementation:**
+- `onLayout` on the highlighted `<Text>` is the primary scroll trigger — fires when the highlighted text's layout changes.
+- `userHasScrolled` ref: set to `true` by `onScroll` when user scrolls; suppresses auto-scroll.
+- `isProgrammaticScroll` ref + `scrollTarget` ref: set before calling `scrollTo`, cleared by `handleScroll` when content offset reaches the target (within 5px). Prevents `onScroll` from misidentifying programmatic scrolls as user input.
+- Reset triggers: recording starts (`isRecording` false→true), or `matchedDocument.docId+section` changes.
+
+**Known pitfalls — do not reintroduce these:**
+- **DO NOT** add a `useEffect([highlightPosition])` that calls `scrollTo` without a `!userHasScrolled` guard. `highlightPosition` is a new object on every render (~500ms), so an unguarded effect keeps `isProgrammaticScroll=true` indefinitely and prevents user scrolls from ever being detected.
+- **DO NOT** use `onScrollBeginDrag` to detect user scroll — it only fires on native touch drag, not mouse wheel on web.
