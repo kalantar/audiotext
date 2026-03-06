@@ -8,6 +8,9 @@
  */
 
 import React, { useCallback, useRef, useEffect, useMemo } from 'react';
+
+// Use Metro's global __DEV__ if available (React Native/Expo), otherwise always log
+function debugLog(...args) { if (typeof __DEV__ !== 'undefined' ? __DEV__ : true) console.log(...args); }
 import {
   View,
   Text,
@@ -100,22 +103,46 @@ const MatchedTextWidget = ({
   const theme = useTheme();
   const scrollViewRef = useRef(null);
   const highlightYPosition = useRef(null);
+  const userHasScrolled = useRef(false);
+  const prevFirstParagraphNum = useRef(null);
+  const isProgrammaticScroll = useRef(false);
+  const programmaticScrollTimer = useRef(null);
+
+  // Reset user scroll flag when highlight anchor changes (non-contiguous match or new session)
+  useEffect(() => {
+    const firstParagraphNum = highlightPosition?.firstParagraphNum;
+    if (firstParagraphNum !== prevFirstParagraphNum.current) {
+      debugLog('[SCROLL] Anchor changed p' + prevFirstParagraphNum.current + '→p' + firstParagraphNum + ', resetting userHasScrolled');
+      prevFirstParagraphNum.current = firstParagraphNum;
+      userHasScrolled.current = false;
+    }
+  }, [highlightPosition]);
+
+  // Scroll programmatically — sets a flag so onScroll doesn't misidentify it as user input
+  const scrollToHighlight = useCallback((y) => {
+    debugLog('[SCROLL] Programmatic scroll to y=' + Math.round(y));
+    isProgrammaticScroll.current = true;
+    scrollViewRef.current?.scrollTo({ y: Math.max(0, y - 20), animated: true });
+    if (programmaticScrollTimer.current) clearTimeout(programmaticScrollTimer.current);
+    programmaticScrollTimer.current = setTimeout(() => {
+      debugLog('[SCROLL] Programmatic scroll flag cleared');
+      isProgrammaticScroll.current = false;
+    }, 400);
+  }, []);
 
   // Handle layout of highlighted text to capture its position
   const handleHighlightLayout = useCallback((event) => {
     const { y } = event.nativeEvent.layout;
+    const prev = highlightYPosition.current;
     highlightYPosition.current = y;
 
-    // Auto-scroll to highlighted text
-    if (scrollViewRef.current && y !== null && y > 0) {
-      requestAnimationFrame(() => {
-        scrollViewRef.current?.scrollTo({
-          y: Math.max(0, y - 20),
-          animated: true
-        });
-      });
+    if (!userHasScrolled.current && scrollViewRef.current && y !== null && y > 0) {
+      debugLog('[SCROLL] onLayout: y=' + Math.round(y) + (prev !== y ? ' (changed from ' + Math.round(prev) + ')' : ' (unchanged)') + ', scrolling');
+      requestAnimationFrame(() => { scrollToHighlight(y); });
+    } else {
+      debugLog('[SCROLL] onLayout: y=' + Math.round(y) + ', suppressed (userHasScrolled=' + userHasScrolled.current + ')');
     }
-  }, []);
+  }, [scrollToHighlight]);
 
   // Extract text portions for display - show full document with highlight
   // Memoize to avoid expensive substring operations on every render
@@ -141,16 +168,6 @@ const MatchedTextWidget = ({
   }, [fullContent, highlightPosition]);
 
   const { before: beforeText, highlighted: highlightedText, after: afterText } = textSegments;
-
-  // Scroll when highlight position changes
-  useEffect(() => {
-    if (highlightPosition && highlightYPosition.current !== null && highlightYPosition.current > 0 && scrollViewRef.current) {
-      scrollViewRef.current.scrollTo({
-        y: Math.max(0, highlightYPosition.current - 20),
-        animated: true
-      });
-    }
-  }, [highlightPosition]);
 
   // Loading state
   if (isLoading && !matchedDocument) {
@@ -200,7 +217,22 @@ const MatchedTextWidget = ({
           {matchedDocument.verseNum && `#${matchedDocument.verseNum}`}
         </PaperText>
 
-        <ScrollView ref={scrollViewRef} style={styles.textScrollView} contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.textScrollView}
+          contentContainerStyle={styles.scrollContent}
+          scrollEventThrottle={200}
+          onScroll={() => {
+            if (!isProgrammaticScroll.current) {
+              if (!userHasScrolled.current) {
+                debugLog('[SCROLL] User scroll detected, suppressing auto-scroll');
+              }
+              userHasScrolled.current = true;
+            } else {
+              debugLog('[SCROLL] onScroll ignored (programmatic)');
+            }
+          }}
+        >
           <Text style={styles.textContent}>
             {beforeText}
             <Text
