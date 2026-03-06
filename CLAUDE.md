@@ -49,8 +49,8 @@ MatchedTextWidget (display with highlighting)
   - **Web**: MediaRecorder API with WebM → converts to 16kHz mono PCM via Web Audio API → streams 500ms chunks
   - **Native (iOS/Android)**: Records WAV → sends complete file as 8KB PCM chunks after recording stops
 - Displays split view:
-  - **Left side**: Last 50 words of accumulated transcription
-  - **Right side**: Matched text with highlighted passage (MatchedTextWidget)
+  - **Reading surface**: Full-width matched text display (MatchedTextWidget) with paper-like card layout
+  - **Debug panel**: Transcription output and logs, accessible via Appbar bug icon (modal overlay)
 - Real-time text matching as transcription updates
 
 ### Backend (server.js)
@@ -65,7 +65,7 @@ MatchedTextWidget (display with highlighting)
 - **N-gram similarity** (3, 4, 5-word sequences) weighted at 30%
 - **Temporal continuity**: Tracks last 3 matched paragraphs to detect sequential reading patterns
 - **Neighborhood bonus**: When sequential progression is detected, boosts scores for nearby paragraphs (+0.10 for ±1-3, +0.15 for exact prediction)
-- **Stickiness threshold**: 0.15 score differential required to switch documents/sections (prevents jumping on noise)
+- **Stickiness threshold**: Dynamic — -0.10 for early matches (first 3) to allow correcting false positives; 0.15 for stable matches to prevent noise-triggered jumps
 - **Robust section lookup**: Normalizes titles (trim + lowercase), handles duplicate section names by picking section with enough paragraphs
 - Match threshold: 0.08 (very low for noisy speech-to-text)
 - Returns best match with confidence score and metadata
@@ -97,11 +97,11 @@ MatchedTextWidget (display with highlighting)
 - **Audio format for Vosk**: 16-bit signed PCM, 16kHz, mono
 - **Node.js version**: v18 recommended (v20+ may have Vosk native module issues)
 - Use `debugLog()` helper for dev-only logging (checks `__DEV__`)
-- WebSocket sends use `sendSafe()` to check connection state before sending
+- WebSocket sends: server uses `sendSafe()` to check connection state; App.js checks `wsRef.current.readyState === WebSocket.OPEN` inline before each send
 - Text matching runs **debounced** to avoid excessive computation
 - Match algorithm uses **fuzzy token overlap** (50% weight) + **n-gram similarity** (30% weight) + **neighborhood bonus** (0.10-0.15 when sequential progression detected)
 - Text matching uses a **45-word sliding window** instead of all accumulated words to enable paragraph progression
-- Audio chunks sent to Vosk every **500ms** for faster transcription response
+- Audio chunks sent to Vosk every **~250ms** for faster transcription response
 
 ## Coding Conventions
 
@@ -127,7 +127,7 @@ MatchedTextWidget (display with highlighting)
 - **Inline Content Flow**: Interactive elements (highlights) inline with text flow, not separate blocks.
 
 ### Interaction
-- **Auto-Focus on Content**: Matched/highlighted content automatically scrolls into view.
+- **Auto-Focus on Content**: Matched/highlighted content automatically scrolls into view, unless user has manually scrolled (respects user control). Auto-scroll resumes when recording starts or document/section changes.
 - **Responsive Design**: UI adapts to device screen size while maintaining comfortable reading experience. Maximum width constraint for readability.
 
 ### Design System
@@ -174,20 +174,21 @@ MatchedTextWidget (display with highlighting)
 - Match context tracking maintains state across matches for continuity
 - Highlight positioning uses multiple fallback strategies for robustness
 - Auto-scroll implementation uses `onLayout` callback with `requestAnimationFrame`
+- **Cross-platform scroll detection**: Use `onScroll` (not `onScrollBeginDrag`) to detect user scrolling, as `onScrollBeginDrag` only fires for touch events and misses mouse wheel/trackpad scrolling on web. Use `isProgrammaticScroll` flag to distinguish programmatic `scrollTo()` calls from user-initiated scrolls.
 
 ### Auto-Scroll Behavior (MatchedTextWidget)
 
 **Rules:**
 1. When a new highlight appears, auto-scroll to it — unless the user has manually scrolled
 2. Once the user scrolls, suppress all auto-scroll for the rest of the session
-3. Reset (re-enable auto-scroll) only when the highlight anchor changes — i.e. a non-contiguous match starts a new reading session (`firstParagraphNum` changes)
+3. Reset (re-enable auto-scroll) when recording starts or when the matched document/section changes
 
 **Implementation:**
-- `onLayout` on the highlighted `<Text>` is the **only** scroll trigger. It fires when the highlighted text's layout changes (content or position shifts).
-- `userHasScrolled` ref: set to `true` by `onScroll` when user scrolls; suppresses `onLayout`-triggered scroll.
-- `isProgrammaticScroll` ref + 400ms timer: set before calling `scrollTo`, cleared after animation settles. Prevents `onScroll` from misidentifying programmatic scrolls as user input.
-- `firstParagraphNum` in `highlightPosition`: changes when a non-contiguous match occurs, triggering a `useEffect` that resets `userHasScrolled`.
+- `onLayout` on the highlighted `<Text>` is the primary scroll trigger — fires when the highlighted text's layout changes.
+- `userHasScrolled` ref: set to `true` by `onScroll` when user scrolls; suppresses auto-scroll.
+- `isProgrammaticScroll` ref + `scrollTarget` ref: set before calling `scrollTo`, cleared by `handleScroll` when content offset reaches the target (within 5px). Prevents `onScroll` from misidentifying programmatic scrolls as user input.
+- Reset triggers: recording starts (`isRecording` false→true), or `matchedDocument.docId+section` changes.
 
 **Known pitfalls — do not reintroduce these:**
-- **DO NOT** add a `useEffect` that calls `scrollTo` when `highlightPosition` changes. `highlightPosition` is a new object on every render (every ~500ms match), so the effect fires constantly, keeping `isProgrammaticScroll=true` indefinitely — every `onScroll` event is then attributed to programmatic scrolling, so `userHasScrolled` can never be set by genuine user interaction.
+- **DO NOT** add a `useEffect([highlightPosition])` that calls `scrollTo` without a `!userHasScrolled` guard. `highlightPosition` is a new object on every render (~500ms), so an unguarded effect keeps `isProgrammaticScroll=true` indefinitely and prevents user scrolls from ever being detected.
 - **DO NOT** use `onScrollBeginDrag` to detect user scroll — it only fires on native touch drag, not mouse wheel on web.

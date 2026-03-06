@@ -60,7 +60,9 @@ for (const testFile of testFiles) {
     console.log(`\n${'='.repeat(70)}`);
     console.log(`TEST: ${testFile}`);
     console.log('='.repeat(70));
-    console.log(`Expected: ${testCase.expectedMatch.docId} p${testCase.expectedMatch.paragraphNum}`);
+    const acceptable = testCase.acceptableMatches ||
+      [{ docId: testCase.expectedMatch.docId, paragraphNum: testCase.expectedMatch.paragraphNum }];
+    console.log(`Expected: ${acceptable.map(m => `${m.docId} p${m.paragraphNum}`).join(' or ')}`);
     console.log(`Stages: ${testCase.progressiveStages.length}\n`);
 
     totalTests++;
@@ -86,8 +88,10 @@ for (const testFile of testFiles) {
       let statusSymbol = '';
 
       if (match) {
-        const acceptable = testCase.acceptableMatches || [testCase.expectedMatch];
-        const isCorrect = acceptable.some(m => m.docId === match.docId && m.paragraphNum === match.paragraphNum);
+        // Support acceptableMatches array for texts that appear in multiple documents
+        const acceptable = testCase.acceptableMatches ||
+          [{ docId: testCase.expectedMatch.docId, paragraphNum: testCase.expectedMatch.paragraphNum }];
+        const isCorrect = acceptable.some(m => match.docId === m.docId && match.paragraphNum === m.paragraphNum);
 
         if (isCorrect) {
           passed = true;
@@ -102,13 +106,14 @@ for (const testFile of testFiles) {
         console.log(`  [${statusSymbol}] ${stage.wordCount} words: ${match.docId} p${match.paragraphNum} (score: ${match.score.toFixed(3)})`);
 
         if (!isCorrect) {
-          console.log(`      Expected: ${testCase.expectedMatch.docId} p${testCase.expectedMatch.paragraphNum}`);
+          const expectedStr = acceptable.map(m => `${m.docId} p${m.paragraphNum}`).join(' or ');
+          console.log(`      Expected: ${expectedStr}`);
         }
 
         allResults.push({
           test: testFile,
           stage: stage.wordCount,
-          expected: `${testCase.expectedMatch.docId} p${testCase.expectedMatch.paragraphNum}`,
+          expected: acceptable.map(m => `${m.docId} p${m.paragraphNum}`).join(' or '),
           actual: `${match.docId} p${match.paragraphNum}`,
           passed: isCorrect
         });

@@ -20,10 +20,10 @@ export const testCase = {
     paragraphNum: 3
   },
 
-  // Acceptable alternatives (same text appears in multiple documents)
+  // This prayer appears verbatim in multiple documents — either is a valid match
   acceptableMatches: [
     { docId: 'prayers-meditations', paragraphNum: 3 },
-    { docId: 'bahai-prayers', paragraphNum: 721 },
+    { docId: 'bahai-prayers', paragraphNum: 721 }
   ],
 
   // Actual paragraph text for reference

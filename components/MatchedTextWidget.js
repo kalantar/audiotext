@@ -98,65 +98,84 @@ const MatchedTextWidget = ({
   highlightPosition,
   isLoading,
   confidence,
-  isMatching
+  isMatching,
+  isRecording
 }) => {
   const theme = useTheme();
   const scrollViewRef = useRef(null);
   const highlightYPosition = useRef(null);
   const userHasScrolled = useRef(false);
-  const prevFirstParagraphNum = useRef(null);
+  const lastDocumentKey = useRef(null);
+  const lastRecordingState = useRef(isRecording);
   const isProgrammaticScroll = useRef(false);
-  const programmaticScrollTimer = useRef(null);
+  const scrollTarget = useRef(null);
 
-  // Cancel any pending scroll timer on unmount to avoid setState on unmounted component
+  // Reset user scroll flag when recording starts or document changes
   useEffect(() => {
-    return () => { if (programmaticScrollTimer.current) clearTimeout(programmaticScrollTimer.current); };
-  }, []);
+    const currentDocumentKey = matchedDocument
+      ? `${matchedDocument.docId}-${matchedDocument.section}`
+      : null;
 
-  // Reset userHasScrolled when the highlight anchor changes (non-contiguous match / new session).
-  // highlightPosition is a new object on every render, so this effect fires often —
-  // but only acts when firstParagraphNum actually changes.
-  // WARNING: do NOT call scrollTo from this effect. highlightPosition changes every ~500ms,
-  // so any scrollTo here will fire constantly and prevent userHasScrolled from ever being set.
-  useEffect(() => {
-    const firstParagraphNum = highlightPosition?.firstParagraphNum;
-    if (firstParagraphNum !== prevFirstParagraphNum.current) {
-      debugLog('[SCROLL] Anchor changed p' + prevFirstParagraphNum.current + '→p' + firstParagraphNum + ', resetting userHasScrolled');
-      prevFirstParagraphNum.current = firstParagraphNum;
+    // Reset on recording start (false → true transition)
+    if (isRecording && !lastRecordingState.current) {
+      debugLog('[SCROLL] Recording started - resetting userHasScrolled flag');
       userHasScrolled.current = false;
     }
-  }, [highlightPosition]);
+    lastRecordingState.current = isRecording;
 
-  // Scroll programmatically — sets a flag so onScroll doesn't misidentify it as user input.
-  // The 400ms timer gives the animated scroll time to settle before clearing the flag.
-  const scrollToHighlight = useCallback((y) => {
-    debugLog('[SCROLL] Programmatic scroll to y=' + Math.round(y));
-    isProgrammaticScroll.current = true;
-    scrollViewRef.current?.scrollTo({ y: Math.max(0, y - 20), animated: true });
-    if (programmaticScrollTimer.current) clearTimeout(programmaticScrollTimer.current);
-    programmaticScrollTimer.current = setTimeout(() => {
-      debugLog('[SCROLL] Programmatic scroll flag cleared');
-      isProgrammaticScroll.current = false;
-    }, 400);
+    // Reset on document/section change (jumped to different text)
+    if (currentDocumentKey && currentDocumentKey !== lastDocumentKey.current) {
+      debugLog('[SCROLL] Document changed:', lastDocumentKey.current, '→', currentDocumentKey, '- resetting flag');
+      userHasScrolled.current = false;
+      highlightYPosition.current = null;
+      scrollTarget.current = null;
+    }
+
+    lastDocumentKey.current = currentDocumentKey;
+  }, [isRecording, matchedDocument]);
+
+  // Handle scroll events - distinguish between user and programmatic scrolls
+  const handleScroll = useCallback((event) => {
+    if (isProgrammaticScroll.current && scrollTarget.current !== null) {
+      const currentY = event.nativeEvent.contentOffset.y;
+      if (Math.abs(currentY - scrollTarget.current) < 5) {
+        // Arrived at target — terminal event of our programmatic scroll
+        isProgrammaticScroll.current = false;
+        scrollTarget.current = null;
+        return;
+      }
+      // Still animating toward target — keep flag alive, don't treat as user scroll
+      return;
+    }
+    debugLog('[SCROLL] User manually scrolled - setting userHasScrolled = true');
+    userHasScrolled.current = true;
   }, []);
 
-  // onLayout on the highlighted <Text> is the ONLY scroll trigger.
-  // It fires when the highlighted text's layout changes (content shifts, new paragraph added).
-  // It does NOT fire on every render — only when layout actually changes.
-  // WARNING: do NOT add a useEffect([highlightPosition]) that calls scrollTo.
-  // WARNING: do NOT use onScrollBeginDrag — it doesn't fire for mouse wheel on web.
+  // Handle layout of highlighted text to capture its position
   const handleHighlightLayout = useCallback((event) => {
     const { y } = event.nativeEvent.layout;
-    const prev = highlightYPosition.current;
     highlightYPosition.current = y;
 
-    if (!userHasScrolled.current && scrollViewRef.current && y !== null && y > 0) {
-      debugLog('[SCROLL] onLayout: y=' + Math.round(y) + (prev !== y ? ' (changed from ' + Math.round(prev) + ')' : ' (unchanged)') + ', scrolling');
-      requestAnimationFrame(() => { scrollToHighlight(y); });
-    } else {
-      debugLog('[SCROLL] onLayout: y=' + Math.round(y) + ', suppressed (userHasScrolled=' + userHasScrolled.current + ')');
+    debugLog('[SCROLL] handleHighlightLayout: y=', y, 'userHasScrolled=', userHasScrolled.current);
+
+    // Auto-scroll to highlighted text (unless user has manually scrolled)
+    if (scrollViewRef.current && y !== null && y > 0 && !userHasScrolled.current) {
+      const targetY = Math.max(0, y - 20);
+      debugLog('[SCROLL] → Auto-scrolling to y=', targetY);
+
+      scrollTarget.current = targetY;
+      isProgrammaticScroll.current = true;
+
+      requestAnimationFrame(() => {
+        scrollViewRef.current?.scrollTo({
+          y: targetY,
+          animated: true
+        });
+      });
+    } else if (userHasScrolled.current) {
+      debugLog('[SCROLL] → Skipping auto-scroll (user has manually scrolled)');
     }
-  }, [scrollToHighlight]);
+  }, []);
 
   // Extract text portions for display - show full document with highlight
   // Memoize to avoid expensive substring operations on every render
@@ -182,6 +201,31 @@ const MatchedTextWidget = ({
   }, [fullContent, highlightPosition]);
 
   const { before: beforeText, highlighted: highlightedText, after: afterText } = textSegments;
+
+  // Scroll when highlight position changes (unless user has manually scrolled)
+  useEffect(() => {
+    debugLog('[SCROLL] highlightPosition useEffect triggered:', {
+      hasPosition: !!highlightPosition,
+      yPosition: highlightYPosition.current,
+      hasScrollRef: !!scrollViewRef.current,
+      userHasScrolled: userHasScrolled.current
+    });
+
+    if (highlightPosition && highlightYPosition.current !== null && highlightYPosition.current > 0 && scrollViewRef.current && !userHasScrolled.current) {
+      const targetY = Math.max(0, highlightYPosition.current - 20);
+      debugLog('[SCROLL] → Auto-scrolling via useEffect to y=', targetY);
+
+      scrollTarget.current = targetY;
+      isProgrammaticScroll.current = true;
+
+      scrollViewRef.current.scrollTo({
+        y: targetY,
+        animated: true
+      });
+    } else if (userHasScrolled.current) {
+      debugLog('[SCROLL] → Skipping auto-scroll via useEffect (user has manually scrolled)');
+    }
+  }, [highlightPosition]);
 
   // Loading state
   if (isLoading && !matchedDocument) {
@@ -235,17 +279,9 @@ const MatchedTextWidget = ({
           ref={scrollViewRef}
           style={styles.textScrollView}
           contentContainerStyle={styles.scrollContent}
-          scrollEventThrottle={200}
-          onScroll={() => {
-            if (!isProgrammaticScroll.current) {
-              if (!userHasScrolled.current) {
-                debugLog('[SCROLL] User scroll detected, suppressing auto-scroll');
-              }
-              userHasScrolled.current = true;
-            } else {
-              debugLog('[SCROLL] onScroll ignored (programmatic)');
-            }
-          }}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          testID="matched-text-scrollview"
         >
           <Text style={styles.textContent}>
             {beforeText}
