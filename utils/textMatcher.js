@@ -13,6 +13,15 @@ const MATCH_THRESHOLD = 0.08;
 // Maximum Levenshtein distance to consider words as matching
 const MAX_LEVENSHTEIN_DISTANCE = 2;
 
+// Prefix length for inverted index lookup — must match PREFIX_LENGTH in crawl-bahai-library.cjs
+const PREFIX_LENGTH = 4;
+
+// Dev mode flag and logging helper
+const __DEV__ = typeof process !== 'undefined' && process.env.NODE_ENV !== 'production';
+function debugLog(...args) {
+  if (__DEV__) console.log(...args);
+}
+
 // Stop words to exclude from matching
 const STOP_WORDS = new Set([
   'a', 'an', 'the', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'be', 'been',
@@ -242,15 +251,34 @@ export function findBestMatch(words, searchIndex, context = {}, prediction = nul
   const searchTokens = tokenize(words.join(' '));
   const searchNgrams = generateNgrams(words.map(w => w.toLowerCase()));
 
-  // PASS 1: Pre-screening with token signatures
-  // Quickly filter out 70-80% of documents that have minimal token overlap
-  // Lower threshold (10%) to tolerate noisy speech recognition
-  const searchSignature = computeTokenSignature(searchTokens);
-  const candidates = [];
+  // PASS 1: Prefix index lookup — fast path when tokenIndex is available
+  // Falls back to linear pre-screening scan for old index files without tokenIndex
+  // Stats tracked on searchIndex for debug inspection (dev only)
+  let candidates;
 
-  for (const doc of searchIndex.documents) {
-    if (hasMinimalOverlap(searchSignature, doc.tokens, 0.10)) {
-      candidates.push(doc);
+  if (searchIndex.tokenIndex) {
+    const candidateIndices = new Set();
+    for (const token of searchTokens) {
+      if (token.length >= PREFIX_LENGTH) {
+        const prefix = token.substring(0, PREFIX_LENGTH);
+        const list = searchIndex.tokenIndex[prefix];
+        if (list) list.forEach(i => candidateIndices.add(i));
+      }
+    }
+    candidates = [...candidateIndices].map(i => searchIndex.documents[i]);
+    if (__DEV__) {
+      searchIndex._stats = searchIndex._stats || { indexHits: 0, fallbacks: 0, totalCandidates: 0 };
+      searchIndex._stats.indexHits++;
+      searchIndex._stats.totalCandidates += candidates.length;
+      debugLog('[MATCH] Pass 1 (index): ' + candidates.length + ' candidates | hits=' + searchIndex._stats.indexHits + ' fallbacks=' + searchIndex._stats.fallbacks + ' avgCandidates=' + (searchIndex._stats.totalCandidates / searchIndex._stats.indexHits).toFixed(0));
+    }
+  } else {
+    const searchSignature = computeTokenSignature(searchTokens);
+    candidates = searchIndex.documents.filter(doc => hasMinimalOverlap(searchSignature, doc.tokens, 0.10));
+    if (__DEV__) {
+      searchIndex._stats = searchIndex._stats || { indexHits: 0, fallbacks: 0, totalCandidates: 0 };
+      searchIndex._stats.fallbacks++;
+      debugLog('[MATCH] Pass 1 (linear fallback): ' + candidates.length + ' candidates | hits=' + searchIndex._stats.indexHits + ' fallbacks=' + searchIndex._stats.fallbacks);
     }
   }
 
