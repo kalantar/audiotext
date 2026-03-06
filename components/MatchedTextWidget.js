@@ -8,9 +8,6 @@
  */
 
 import React, { useCallback, useRef, useEffect, useMemo } from 'react';
-
-// Use Metro's global __DEV__ if available (React Native/Expo), otherwise always log
-function debugLog(...args) { if (typeof __DEV__ !== 'undefined' ? __DEV__ : true) console.log(...args); }
 import {
   View,
   Text,
@@ -26,6 +23,9 @@ import {
   IconButton,
   useTheme
 } from 'react-native-paper';
+
+// Use Metro's global __DEV__ if available (React Native/Expo), otherwise always log
+function debugLog(...args) { if (typeof __DEV__ !== 'undefined' ? __DEV__ : true) console.log(...args); }
 
 /**
  * Document Header Component
@@ -107,6 +107,11 @@ const MatchedTextWidget = ({
   const prevFirstParagraphNum = useRef(null);
   const isProgrammaticScroll = useRef(false);
   const programmaticScrollTimer = useRef(null);
+
+  // Cancel any pending scroll timer on unmount to avoid setState on unmounted component
+  useEffect(() => {
+    return () => { if (programmaticScrollTimer.current) clearTimeout(programmaticScrollTimer.current); };
+  }, []);
 
   // Reset userHasScrolled when the highlight anchor changes (non-contiguous match / new session).
   // highlightPosition is a new object on every render, so this effect fires often —

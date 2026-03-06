@@ -22,6 +22,9 @@ function debugLog(...args) {
   if (__DEV__) console.log(...args);
 }
 
+// Dev-only match stats (module-level to avoid mutating the shared searchIndex object)
+const _matchStats = { indexHits: 0, fallbacks: 0, totalCandidates: 0 };
+
 // Stop words to exclude from matching
 const STOP_WORDS = new Set([
   'a', 'an', 'the', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'be', 'been',
@@ -220,7 +223,8 @@ function computeTokenSignature(tokens) {
 
 /**
  * Check if document has minimal token overlap for pre-screening
- * Returns true if document should be considered (>=15% signature overlap)
+ * Returns true if document should be considered (>= threshold signature overlap).
+ * Default threshold is 0.15 but the linear fallback call site passes 0.10.
  */
 function hasMinimalOverlap(searchSignature, docTokens, threshold = 0.15) {
   if (searchSignature.size === 0) return false;
@@ -238,7 +242,7 @@ function hasMinimalOverlap(searchSignature, docTokens, threshold = 0.15) {
 /**
  * Find best matching document entry for given transcribed words
  *
- * @param {string[]} words - Array of transcribed words (last 10-20 words)
+ * @param {string[]} words - Array of transcribed words from the sliding window (typically ~45 words, minimum 8)
  * @param {Object} searchIndex - The loaded search index
  * @param {Object} context - Previous match context for continuity
  * @returns {Object|null} - Best match with score, or null if no good match
@@ -252,8 +256,11 @@ export function findBestMatch(words, searchIndex, context = {}, prediction = nul
   const searchNgrams = generateNgrams(words.map(w => w.toLowerCase()));
 
   // PASS 1: Prefix index lookup — fast path when tokenIndex is available
-  // Falls back to linear pre-screening scan for old index files without tokenIndex
-  // Stats tracked on searchIndex for debug inspection (dev only)
+  // Falls back to linear pre-screening scan for old index files without tokenIndex.
+  // NOTE: tokens shorter than PREFIX_LENGTH (4 chars) are skipped by the index path.
+  // Passages composed mostly of short meaningful words (e.g. "O God thy mercy")
+  // may produce zero candidates and return null even when a match exists.
+  // This is a known limitation; the 45-word window makes it rare in practice.
   let candidates;
 
   if (searchIndex.tokenIndex) {
@@ -267,18 +274,16 @@ export function findBestMatch(words, searchIndex, context = {}, prediction = nul
     }
     candidates = [...candidateIndices].map(i => searchIndex.documents[i]);
     if (__DEV__) {
-      searchIndex._stats = searchIndex._stats || { indexHits: 0, fallbacks: 0, totalCandidates: 0 };
-      searchIndex._stats.indexHits++;
-      searchIndex._stats.totalCandidates += candidates.length;
-      debugLog('[MATCH] Pass 1 (index): ' + candidates.length + ' candidates | hits=' + searchIndex._stats.indexHits + ' fallbacks=' + searchIndex._stats.fallbacks + ' avgCandidates=' + (searchIndex._stats.totalCandidates / searchIndex._stats.indexHits).toFixed(0));
+      _matchStats.indexHits++;
+      _matchStats.totalCandidates += candidates.length;
+      debugLog('[MATCH] Pass 1 (index): ' + candidates.length + ' candidates | hits=' + _matchStats.indexHits + ' fallbacks=' + _matchStats.fallbacks + ' avgCandidates=' + (_matchStats.totalCandidates / _matchStats.indexHits).toFixed(0));
     }
   } else {
     const searchSignature = computeTokenSignature(searchTokens);
     candidates = searchIndex.documents.filter(doc => hasMinimalOverlap(searchSignature, doc.tokens, 0.10));
     if (__DEV__) {
-      searchIndex._stats = searchIndex._stats || { indexHits: 0, fallbacks: 0, totalCandidates: 0 };
-      searchIndex._stats.fallbacks++;
-      debugLog('[MATCH] Pass 1 (linear fallback): ' + candidates.length + ' candidates | hits=' + searchIndex._stats.indexHits + ' fallbacks=' + searchIndex._stats.fallbacks);
+      _matchStats.fallbacks++;
+      debugLog('[MATCH] Pass 1 (linear fallback): ' + candidates.length + ' candidates | hits=' + _matchStats.indexHits + ' fallbacks=' + _matchStats.fallbacks);
     }
   }
 

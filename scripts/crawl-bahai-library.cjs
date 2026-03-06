@@ -443,14 +443,20 @@ function generateSearchIndex(documents) {
     }
   }
 
-  // Build prefix-based inverted index: token prefix → array of document indices
+  // Build prefix-based inverted index: token prefix → array of document indices.
+  // Use a seen Set per document to avoid pushing the same index twice when a
+  // document has multiple tokens sharing the same prefix (e.g. "manifest", "manifestation").
   const tokenIndex = {};
   for (let i = 0; i < index.documents.length; i++) {
+    const seenPrefixes = new Set();
     for (const token of index.documents[i].tokens) {
       if (token.length >= PREFIX_LENGTH) {
         const prefix = token.substring(0, PREFIX_LENGTH);
-        if (!tokenIndex[prefix]) tokenIndex[prefix] = [];
-        tokenIndex[prefix].push(i);
+        if (!seenPrefixes.has(prefix)) {
+          seenPrefixes.add(prefix);
+          if (!tokenIndex[prefix]) tokenIndex[prefix] = [];
+          tokenIndex[prefix].push(i);
+        }
       }
     }
   }

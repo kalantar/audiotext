@@ -1,5 +1,6 @@
 const fs = require('fs');
-const index = JSON.parse(fs.readFileSync('public/search-index.json', 'utf8'));
+const path = require('path');
+const index = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../public/search-index.json'), 'utf8'));
 
 if (!index.tokenIndex) {
   console.error('FAIL: tokenIndex field missing from search-index.json');
