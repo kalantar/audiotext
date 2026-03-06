@@ -512,6 +512,7 @@ Replace with:
 ```js
   // PASS 1: Prefix index lookup — fast path when tokenIndex is available
   // Falls back to linear pre-screening scan for old index files without tokenIndex
+  // Stats tracked on searchIndex for debug inspection (dev only)
   let candidates;
 
   if (searchIndex.tokenIndex) {
@@ -524,13 +525,30 @@ Replace with:
       }
     }
     candidates = [...candidateIndices].map(i => searchIndex.documents[i]);
-    debugLog('[MATCH] Pass 1 (index): ' + candidates.length + ' candidates from ' + searchIndex.documents.length + ' total');
+    if (__DEV__) {
+      searchIndex._stats = searchIndex._stats || { indexHits: 0, fallbacks: 0, totalCandidates: 0 };
+      searchIndex._stats.indexHits++;
+      searchIndex._stats.totalCandidates += candidates.length;
+      debugLog('[MATCH] Pass 1 (index): ' + candidates.length + ' candidates | hits=' + searchIndex._stats.indexHits + ' fallbacks=' + searchIndex._stats.fallbacks + ' avgCandidates=' + (searchIndex._stats.totalCandidates / searchIndex._stats.indexHits).toFixed(0));
+    }
   } else {
     const searchSignature = computeTokenSignature(searchTokens);
     candidates = searchIndex.documents.filter(doc => hasMinimalOverlap(searchSignature, doc.tokens, 0.10));
-    debugLog('[MATCH] Pass 1 (linear fallback): ' + candidates.length + ' candidates');
+    if (__DEV__) {
+      searchIndex._stats = searchIndex._stats || { indexHits: 0, fallbacks: 0, totalCandidates: 0 };
+      searchIndex._stats.fallbacks++;
+      debugLog('[MATCH] Pass 1 (linear fallback): ' + candidates.length + ' candidates | hits=' + searchIndex._stats.indexHits + ' fallbacks=' + searchIndex._stats.fallbacks);
+    }
   }
 ```
+
+This accumulates hit/fallback counts on `searchIndex._stats` (a dev-only field). In the browser console during a session you'll see lines like:
+
+```
+[MATCH] Pass 1 (index): 187 candidates | hits=12 fallbacks=0 avgCandidates=143
+```
+
+If fallbacks stay at 0 throughout a session, the inverted index is handling everything. If fallbacks accumulate, the index isn't being used (e.g., old index file without `tokenIndex`). The `avgCandidates` shows how much the index is pruning from the original 9,424.
 
 **Step 5: Run tests**
 
