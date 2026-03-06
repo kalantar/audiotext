@@ -422,15 +422,17 @@ export default function App() {
             // Check if this is a valid sequential progression
             const isSameParagraph = isSameSection && ctx.currentParagraphNum === match.paragraphNum;
             const isNextParagraph = isSameSection && match.paragraphNum === ctx.currentParagraphNum + 1;
+            // Sliding window can temporarily match the previous paragraph near boundaries — don't reset
+            const isPrevParagraph = isSameSection && match.paragraphNum === ctx.currentParagraphNum - 1;
             // Re-lock: switching to a better document but landing on same paragraph we already confirmed
             const isRelock = !isSameSection && match.paragraphNum === ctx.currentParagraphNum;
-            const isValidProgression = isSameParagraph || isNextParagraph || isRelock;
+            const isValidProgression = isSameParagraph || isNextParagraph || isPrevParagraph || isRelock;
 
             let firstParagraphIndex;
             if (isValidProgression && ctx.firstParagraphNum !== null) {
               // Valid progression: keep tracking from first matched paragraph
               firstParagraphIndex = ctx.firstParagraphNum - 1;
-              console.log('[MATCH] Valid progression:', isSameParagraph ? 'same paragraph' : isNextParagraph ? 'next paragraph' : 're-lock');
+              console.log('[MATCH] Valid progression:', isSameParagraph ? 'same paragraph' : isNextParagraph ? 'next paragraph' : isPrevParagraph ? 'previous paragraph' : 're-lock');
             } else {
               // Non-sequential jump or new section: reset highlight to current paragraph
               firstParagraphIndex = currentParagraphIndex;
@@ -458,7 +460,8 @@ export default function App() {
               currentStart: currentParagraphStart,  // For scrolling to current paragraph
               currentEnd: currentParagraphEnd,
               contextStart: 0,
-              contextEnd: content.text.length
+              contextEnd: content.text.length,
+              firstParagraphNum: firstParagraphIndex + 1  // Signals non-contiguous jump when it changes
             };
 
             console.log('[MATCH] Paragraph-based highlight: paragraphs', firstParagraphIndex + 1, 'to', currentParagraphIndex + 1,
@@ -908,13 +911,9 @@ export default function App() {
       webMediaStreamRef.current = null;
     }
 
-    // Clean up AudioContext if it exists
+    // Clean up AudioContext if it exists — fire and forget so it doesn't block setIsRecording(false)
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      try {
-        await audioContextRef.current.close();
-      } catch (err) {
-        debugLog('Error closing AudioContext:', err);
-      }
+      audioContextRef.current.close().catch(err => debugLog('Error closing AudioContext:', err));
       audioContextRef.current = null;
     }
 
