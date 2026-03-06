@@ -86,8 +86,8 @@ for (const testFile of testFiles) {
       let statusSymbol = '';
 
       if (match) {
-        const isCorrect = match.docId === testCase.expectedMatch.docId &&
-                         match.paragraphNum === testCase.expectedMatch.paragraphNum;
+        const acceptable = testCase.acceptableMatches || [testCase.expectedMatch];
+        const isCorrect = acceptable.some(m => m.docId === match.docId && m.paragraphNum === match.paragraphNum);
 
         if (isCorrect) {
           passed = true;
