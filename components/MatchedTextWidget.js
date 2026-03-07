@@ -300,7 +300,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fdfaf5', // Off-white paper
     borderRadius: 8,
     overflow: 'hidden', // Contain content within rounded corners
-    // Shadow (plain View handles overflow + shadow correctly unlike Paper Surface)
+    // Note: shadow is clipped by overflow:'hidden' on iOS; elevation works on Android
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.15,
