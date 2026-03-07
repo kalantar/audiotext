@@ -143,10 +143,10 @@ MatchedTextWidget (display with highlighting)
 - **Why This Matters**: PaperText doesn't support inline nesting properly. Inline content (like highlighting within paragraphs) must use native Text components to maintain proper flow and spacing. Violating this causes broken highlighting and spacing issues.
 
 ### Card-Based Presentation
-- **Content Wrapped in Cards**: All major content sections wrapped in Material Card components with Card.Content.
-- **Consistent Card Styling**: Off-white paper background (#fdfaf5), rounded corners (8px), appropriate elevation.
-- **Proper Containment**: Cards must properly contain content with `overflow: 'hidden'` and proper flex layout to prevent content escaping boundaries.
-- **State Consistency**: Same card appearance and structure for loading, empty, and content states.
+- **MatchedTextWidget uses plain View**: NOT Paper `<Card>`. Paper's Card (MD3 Surface) splits styles across two Animated.Views; `flex: 1` goes to the outer layer but the inner layer (which has `overflow: 'hidden'`) does not inherit flex when `container=true`, causing the ScrollView to collapse to zero height on iOS. Use a plain `<View style={styles.paperCard}>` with `flex: 1, overflow: 'hidden', borderRadius: 8` — flex layout works correctly on plain Views.
+- **Consistent Card Styling**: Off-white paper background (#fdfaf5), rounded corners (8px).
+- **Proper Containment**: Container must have `overflow: 'hidden'` and proper flex layout to prevent content escaping boundaries.
+- **State Consistency**: Same container appearance and structure for loading, empty, and content states.
 
 ### Loading & Empty States
 - **Loading States**: Show Material ActivityIndicator with descriptive text in card layout.
@@ -184,7 +184,7 @@ MatchedTextWidget (display with highlighting)
 3. Reset (re-enable auto-scroll) when recording starts or when the matched document/section changes
 
 **Implementation:**
-- `onLayout` on the highlighted `<Text>` is the primary scroll trigger — fires when the highlighted text's layout changes.
+- `onLayout` on a `<View>` wrapping the highlighted text is the primary scroll trigger. A nested inline `<Text onLayout>` does NOT fire reliably on iOS native (attributed string spans in UITextView). The highlighted segment is rendered as a standalone `<Text>` inside a `<View onLayout>`, flanked by two separate `<Text>` elements for before/after content.
 - `userHasScrolled` ref: set to `true` by `onScroll` when user scrolls; suppresses auto-scroll.
 - `isProgrammaticScroll` ref + `scrollTarget` ref: set before calling `scrollTo`, cleared by `handleScroll` when content offset reaches the target (within 5px). Prevents `onScroll` from misidentifying programmatic scrolls as user input.
 - Reset triggers: recording starts (`isRecording` false→true), or `matchedDocument.docId+section` changes.

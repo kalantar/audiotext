@@ -16,7 +16,6 @@ import {
   Linking
 } from 'react-native';
 import {
-  Card,
   Text as PaperText,
   Divider,
   ActivityIndicator,
@@ -230,72 +229,67 @@ const MatchedTextWidget = ({
   // Loading state
   if (isLoading && !matchedDocument) {
     return (
-      <Card style={styles.paperCard} elevation={1}>
-        <Card.Content style={styles.emptyState}>
+      <View style={styles.paperCard}>
+        <View style={styles.emptyState}>
           <ActivityIndicator size="large" />
           <PaperText variant="bodyMedium" style={styles.emptyText}>
             Loading text...
           </PaperText>
-        </Card.Content>
-      </Card>
+        </View>
+      </View>
     );
   }
 
   // No match state
   if (!matchedDocument || !fullContent) {
     return (
-      <Card style={styles.paperCard} elevation={1}>
-        <Card.Content style={styles.emptyState}>
+      <View style={styles.paperCard}>
+        <View style={styles.emptyState}>
           <PaperText variant="headlineSmall" style={styles.emptyTitle}>
             {isMatching ? 'Searching...' : 'Ready to listen'}
           </PaperText>
           <PaperText variant="bodyMedium" style={styles.emptyHint}>
             Press the microphone button and speak to find matching passages
           </PaperText>
-        </Card.Content>
-      </Card>
+        </View>
+      </View>
     );
   }
 
   return (
-    <Card style={styles.paperCard} elevation={2}>
-      <Card.Content style={styles.cardContent}>
-        <DocumentHeader
-          title={matchedDocument.title}
-          author={matchedDocument.author}
-          url={matchedDocument.url}
-          confidence={confidence}
-          isMatching={isMatching}
-        />
+    <View style={styles.paperCard}>
+      <DocumentHeader
+        title={matchedDocument.title}
+        author={matchedDocument.author}
+        url={matchedDocument.url}
+        confidence={confidence}
+        isMatching={isMatching}
+      />
 
-        <Divider style={styles.divider} />
+      <Divider style={styles.divider} />
 
-        <PaperText variant="labelLarge" style={styles.verseLabel}>
-          {matchedDocument.section && `${matchedDocument.section} `}
-          {matchedDocument.verseNum && `#${matchedDocument.verseNum}`}
-        </PaperText>
+      <PaperText variant="labelLarge" style={styles.verseLabel}>
+        {matchedDocument.section && `${matchedDocument.section} `}
+        {matchedDocument.verseNum && `#${matchedDocument.verseNum}`}
+      </PaperText>
 
-        <ScrollView
-          ref={scrollViewRef}
-          style={styles.textScrollView}
-          contentContainerStyle={styles.scrollContent}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
-          testID="matched-text-scrollview"
-        >
-          <Text style={styles.textContent}>
-            {beforeText}
-            <Text
-              style={styles.highlightedText}
-              onLayout={handleHighlightLayout}
-            >
-              {highlightedText}
-            </Text>
-            {afterText}
+      <ScrollView
+        ref={scrollViewRef}
+        style={styles.textScrollView}
+        contentContainerStyle={styles.scrollContent}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        testID="matched-text-scrollview"
+      >
+        <Text style={styles.textContent}>{beforeText}</Text>
+        <View onLayout={handleHighlightLayout}>
+          <Text style={[styles.textContent, styles.highlightedText]}>
+            {highlightedText}
           </Text>
-        </ScrollView>
-      </Card.Content>
-    </Card>
+        </View>
+        <Text style={styles.textContent}>{afterText}</Text>
+      </ScrollView>
+    </View>
   );
 };
 
@@ -306,10 +300,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#fdfaf5', // Off-white paper
     borderRadius: 8,
     overflow: 'hidden', // Contain content within rounded corners
-  },
-  cardContent: {
-    flex: 1,
-    padding: 0, // Card.Content has default padding we need to control
+    // Note: shadow is clipped by overflow:'hidden' on iOS; elevation works on Android
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 2,
   },
   divider: {
     marginVertical: 12,
@@ -380,13 +376,9 @@ const styles = StyleSheet.create({
   },
   highlightedText: {
     backgroundColor: '#fff59d',  // Yellow highlighter color
-    paddingVertical: 2,
-    paddingHorizontal: 1,
-    // No fontSize change - inherit from textContent (18px)
-    // No fontWeight change - keep normal weight
-    // No color change - inherit from textContent
   },
   emptyState: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 60,
