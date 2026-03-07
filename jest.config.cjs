@@ -10,6 +10,9 @@ module.exports = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
     '^expo-av$': '<rootDir>/tests/ui/__mocks__/mockAudio.js',
+    '^expo-speech-recognition$': '<rootDir>/tests/ui/__mocks__/mockNativeSTT.js',
+    'assets/textAssets(\\.js)?$': '<rootDir>/tests/ui/__mocks__/mockTextAssets.js',
+    'assets/search-index\\.json$': '<rootDir>/tests/ui/__mocks__/mockSearchIndex.json',
   },
   collectCoverageFrom: [
     'App.js',
