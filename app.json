@@ -24,6 +24,15 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow FollowAlong to use your microphone for speech recognition.",
+          "speechRecognitionPermission": "Allow FollowAlong to recognize your speech to match text."
+        }
+      ]
+    ]
   }
 }
