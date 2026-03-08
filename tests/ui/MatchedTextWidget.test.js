@@ -1,5 +1,6 @@
 import React from 'react';
 import { render } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { Provider as PaperProvider, MD3LightTheme } from 'react-native-paper';
 import MatchedTextWidget from '../../components/MatchedTextWidget';
 
@@ -68,8 +69,8 @@ describe('MatchedTextWidget - Layout', () => {
     const highlightedText = getByText(/econd paragraph text\. Thi/);
     const style = highlightedText.props.style;
 
-    // Should have background color
-    expect(style).toEqual(
+    // Should have background color (style is an array; flatten to access merged properties)
+    expect(StyleSheet.flatten(style)).toEqual(
       expect.objectContaining({
         backgroundColor: expect.any(String),
       })
@@ -94,7 +95,7 @@ describe('MatchedTextWidget - Layout', () => {
 
     // Initially first paragraph highlighted: "First paragraph text."
     const firstPara = getByText(/First paragraph text\./);
-    expect(firstPara.props.style?.backgroundColor).toBeTruthy();
+    expect(StyleSheet.flatten(firstPara.props.style)?.backgroundColor).toBeTruthy();
 
     // Change highlight to second paragraph
     rerender(
@@ -112,7 +113,7 @@ describe('MatchedTextWidget - Layout', () => {
 
     // Second paragraph is highlighted: "econd paragraph text. Thi"
     const secondPara = getByText(/econd paragraph text\. Thi/);
-    expect(secondPara.props.style?.backgroundColor).toBeTruthy();
+    expect(StyleSheet.flatten(secondPara.props.style)?.backgroundColor).toBeTruthy();
   });
 });
 
@@ -130,17 +131,18 @@ describe('MatchedTextWidget - Auto-Scroll', () => {
     scrollToMock.mockClear();
   });
 
-  // Helper: fire onLayout on the highlighted Text element to set highlightYPosition.current
+  // Helper: fire onLayout on the View wrapping the highlighted text to set highlightYPosition.current.
+  // The component puts onLayout on a View (not Text) — see CLAUDE.md auto-scroll notes.
   function fireHighlightLayout(renderResult, y = 100) {
     const { UNSAFE_getAllByType } = renderResult;
-    const { Text } = require('react-native');
-    const allTexts = UNSAFE_getAllByType(Text);
-    const highlightedTextEl = allTexts.find(el => el.props.onLayout);
-    if (!highlightedTextEl) {
-      throw new Error('fireHighlightLayout: no Text element with onLayout prop found — component structure may have changed');
+    const { View } = require('react-native');
+    const allViews = UNSAFE_getAllByType(View);
+    const highlightedViewEl = allViews.find(el => el.props.onLayout);
+    if (!highlightedViewEl) {
+      throw new Error('fireHighlightLayout: no View element with onLayout prop found — component structure may have changed');
     }
-    highlightedTextEl.props.onLayout({ nativeEvent: { layout: { y } } });
-    return highlightedTextEl;
+    highlightedViewEl.props.onLayout({ nativeEvent: { layout: { y } } });
+    return highlightedViewEl;
   }
 
   test('auto-scrolls on highlight position change when user has not scrolled', () => {
@@ -368,7 +370,7 @@ describe('MatchedTextWidget - Auto-Scroll', () => {
     );
 
     const initialHighlight = getByText(/econd paragraph text\. Thi/);
-    expect(initialHighlight.props.style?.backgroundColor).toBeTruthy();
+    expect(StyleSheet.flatten(initialHighlight.props.style)?.backgroundColor).toBeTruthy();
 
     // Rerender with same highlight position but different confidence
     rerender(
@@ -386,7 +388,7 @@ describe('MatchedTextWidget - Auto-Scroll', () => {
 
     // Same text should still be highlighted
     const stillHighlighted = getByText(/econd paragraph text\. Thi/);
-    expect(stillHighlighted.props.style?.backgroundColor).toBeTruthy();
+    expect(StyleSheet.flatten(stillHighlighted.props.style)?.backgroundColor).toBeTruthy();
   });
 });
 

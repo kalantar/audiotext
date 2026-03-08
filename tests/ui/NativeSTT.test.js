@@ -10,7 +10,7 @@
  */
 
 import React from 'react';
-import { render, act, waitFor } from '@testing-library/react-native';
+import { render, act, waitFor, fireEvent } from '@testing-library/react-native';
 import App from '../../App';
 import { paragraph67TestCase } from '../fixtures/paragraph-67-test';
 import { fireResult, resetMock } from './__mocks__/mockNativeSTT';
@@ -67,7 +67,12 @@ describe('App - Native STT Integration', () => {
   });
 
   test('14-word transcription via native STT shows document title', async () => {
-    const { queryAllByText } = render(<App />);
+    const { queryAllByText, getByText } = render(<App />);
+
+    // Start recording — sets isRecordingActiveRef = true so onPartial is not dropped
+    await act(async () => {
+      fireEvent.press(getByText('Record'));
+    });
 
     // Fire a 14-word partial result (simulates SFSpeechRecognizer delivering transcript)
     const stage3 = paragraph67TestCase.progressiveStages[2]; // 14-word stage
