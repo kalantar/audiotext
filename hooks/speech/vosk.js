@@ -1,6 +1,5 @@
 // hooks/speech/vosk.js
 // Web STT implementation: streams audio to local Vosk WebSocket server.
-// Extracted from App.js - no logic changes.
 
 const WS_URL = 'ws://localhost:2700';
 const TARGET_SAMPLE_RATE = 16000;
@@ -12,7 +11,8 @@ export function createVoskSTT({ onPartial, onFinal, onError }) {
   let workletNode = null;
   let scriptProcessor = null;
   let sourceNode = null;
-  // Internal accumulation: Vosk partials are per-utterance; we prepend committed finals.
+  // Internal accumulation: Vosk partials are per-utterance; we prefix each partial/final
+  // with previously committed finals to build a full-session transcript.
   let finalAccumulated = '';
 
   function sendSafe(data) {
@@ -25,24 +25,28 @@ export function createVoskSTT({ onPartial, onFinal, onError }) {
     return new Promise((resolve, reject) => {
       ws = new WebSocket(WS_URL);
       ws.onopen = () => resolve(ws);
-      ws.onerror = (err) => { ws = null; reject(err); };
+      ws.onerror = (err) => { console.error('[vosk] WebSocket error connecting to', WS_URL, err); ws = null; reject(err); };
       ws.onmessage = (event) => {
+        let data;
         try {
-          const data = JSON.parse(event.data);
-          if (data.partial) {
-            const combined = finalAccumulated
-              ? finalAccumulated + ' ' + data.partial
-              : data.partial;
-            onPartial(combined);
-          } else if (data.final && data.final.trim().length > 0) {
-            const newFinal = finalAccumulated
-              ? finalAccumulated + ' ' + data.final
-              : data.final;
-            finalAccumulated = newFinal;
-            onFinal(newFinal);
-          }
+          data = JSON.parse(event.data);
         } catch (err) {
-          // ignore parse errors
+          // Non-JSON frame from server — log and skip
+          console.warn('[vosk] Received non-JSON message from server:', String(event.data).slice(0, 100));
+          return;
+        }
+        // Callback errors are intentionally NOT caught here — they propagate to the caller
+        if (data.partial) {
+          const combined = finalAccumulated
+            ? finalAccumulated + ' ' + data.partial
+            : data.partial;
+          onPartial(combined);
+        } else if (data.final && data.final.trim().length > 0) {
+          const newFinal = finalAccumulated
+            ? finalAccumulated + ' ' + data.final
+            : data.final;
+          finalAccumulated = newFinal;
+          onFinal(newFinal);
         }
       };
       ws.onclose = () => { ws = null; };
@@ -65,7 +69,10 @@ export function createVoskSTT({ onPartial, onFinal, onError }) {
       const sourceSampleRate = audioContext.sampleRate;
       sourceNode = audioContext.createMediaStreamSource(mediaStream);
 
-      // Try AudioWorklet (modern), fall back to ScriptProcessorNode
+      // Try AudioWorklet (modern), fall back to ScriptProcessorNode.
+      // The worklet module path '/audio-processor.js' is relative to the web root (public/).
+      // If it's missing or blocked, the error is logged and execution continues with
+      // ScriptProcessorNode — check the network tab if worklet behavior is expected but absent.
       if (audioContext.audioWorklet) {
         try {
           await audioContext.audioWorklet.addModule('/audio-processor.js');
@@ -82,9 +89,9 @@ export function createVoskSTT({ onPartial, onFinal, onError }) {
             }
             sendSafe(new Uint8Array(pcm16.buffer));
           };
-          return; // worklet path set up successfully
-        } catch (_) {
-          // fall through to ScriptProcessorNode
+          return;
+        } catch (workletErr) {
+          console.warn('[vosk] AudioWorklet setup failed, falling back to ScriptProcessorNode:', workletErr.message);
         }
       }
 
@@ -127,12 +134,16 @@ export function createVoskSTT({ onPartial, onFinal, onError }) {
       audioContext.close();
       audioContext = null;
     }
-    // Give Vosk a moment to send final result before closing WebSocket
+    // Capture ws reference before clearing it — prevents a new session started within
+    // the 3s window from having its WebSocket closed by this timeout.
+    const wsToClose = ws;
+    ws = null;
+    // 3s gives Vosk time to finalize a long utterance before the connection closes.
+    // Reduce with caution — closing too early interrupts mid-utterance finalization.
     setTimeout(() => {
-      if (ws && ws.readyState !== WebSocket.CLOSING && ws.readyState !== WebSocket.CLOSED) {
-        ws.close();
+      if (wsToClose && wsToClose.readyState !== WebSocket.CLOSING && wsToClose.readyState !== WebSocket.CLOSED) {
+        wsToClose.close();
       }
-      ws = null;
     }, 3000);
   }
 

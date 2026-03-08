@@ -264,15 +264,27 @@ export function findBestMatch(words, searchIndex, context = {}, prediction = nul
   let candidates;
 
   if (searchIndex.tokenIndex) {
-    const candidateIndices = new Set();
+    // Count how many query prefixes each candidate matches.
+    // Require MIN_PREFIX_MATCHES to qualify — reduces Pass 2 candidates from
+    // thousands (any 1 shared prefix) to hundreds (2+ shared prefixes), which
+    // is critical on Hermes/JSC where fuzzy matching is much slower than V8.
+    const MIN_PREFIX_MATCHES = 2;
+    const candidateCounts = new Map();
     for (const token of searchTokens) {
       if (token.length >= PREFIX_LENGTH) {
         const prefix = token.substring(0, PREFIX_LENGTH);
         const list = searchIndex.tokenIndex[prefix];
-        if (list) list.forEach(i => candidateIndices.add(i));
+        if (list) {
+          for (const i of list) {
+            candidateCounts.set(i, (candidateCounts.get(i) || 0) + 1);
+          }
+        }
       }
     }
-    candidates = [...candidateIndices].map(i => searchIndex.documents[i]);
+    candidates = [];
+    for (const [i, count] of candidateCounts) {
+      if (count >= MIN_PREFIX_MATCHES) candidates.push(searchIndex.documents[i]);
+    }
     if (typeof __DEV__ !== 'undefined' && __DEV__) {
       _matchStats.indexHits++;
       _matchStats.totalCandidates += candidates.length;
@@ -442,12 +454,14 @@ export function getDocumentMetadata(searchIndex, docId) {
  */
 export function debounce(func, wait) {
   let timeout;
-  return function executedFunction(...args) {
+  function executedFunction(...args) {
     const later = () => {
       clearTimeout(timeout);
       func(...args);
     };
     clearTimeout(timeout);
     timeout = setTimeout(later, wait);
-  };
+  }
+  executedFunction.cancel = () => { clearTimeout(timeout); timeout = null; };
+  return executedFunction;
 }

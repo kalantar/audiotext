@@ -23,8 +23,14 @@ import {
   useTheme
 } from 'react-native-paper';
 
-// Use Metro's global __DEV__ if available (React Native/Expo), otherwise always log
-function debugLog(...args) { if (typeof __DEV__ !== 'undefined' ? __DEV__ : true) console.log(...args); }
+// Timestamped log: shows HH:MM:SS.mmm so taps can be correlated with log entries
+function tsLog(tag, ...args) {
+  if (typeof __DEV__ !== 'undefined' ? __DEV__ : true) {
+    const now = new Date();
+    const ts = now.toTimeString().slice(0, 8) + '.' + String(now.getMilliseconds()).padStart(3, '0');
+    console.log(`[${ts}] [${tag}]`, ...args);
+  }
+}
 
 /**
  * Document Header Component
@@ -117,14 +123,14 @@ const MatchedTextWidget = ({
 
     // Reset on recording start (false → true transition)
     if (isRecording && !lastRecordingState.current) {
-      debugLog('[SCROLL] Recording started - resetting userHasScrolled flag');
+      tsLog('SCROLL', 'Recording started - resetting userHasScrolled flag');
       userHasScrolled.current = false;
     }
     lastRecordingState.current = isRecording;
 
     // Reset on document/section change (jumped to different text)
     if (currentDocumentKey && currentDocumentKey !== lastDocumentKey.current) {
-      debugLog('[SCROLL] Document changed:', lastDocumentKey.current, '→', currentDocumentKey, '- resetting flag');
+      tsLog('SCROLL', 'Document changed:', lastDocumentKey.current, '→', currentDocumentKey, '- resetting flag');
       userHasScrolled.current = false;
       highlightYPosition.current = null;
       scrollTarget.current = null;
@@ -146,7 +152,7 @@ const MatchedTextWidget = ({
       // Still animating toward target — keep flag alive, don't treat as user scroll
       return;
     }
-    debugLog('[SCROLL] User manually scrolled - setting userHasScrolled = true');
+    tsLog('SCROLL', 'User manually scrolled - setting userHasScrolled = true');
     userHasScrolled.current = true;
   }, []);
 
@@ -155,12 +161,12 @@ const MatchedTextWidget = ({
     const { y } = event.nativeEvent.layout;
     highlightYPosition.current = y;
 
-    debugLog('[SCROLL] handleHighlightLayout: y=', y, 'userHasScrolled=', userHasScrolled.current);
+    tsLog('SCROLL', 'handleHighlightLayout: y=', y, 'userHasScrolled=', userHasScrolled.current);
 
     // Auto-scroll to highlighted text (unless user has manually scrolled)
     if (scrollViewRef.current && y !== null && y > 0 && !userHasScrolled.current) {
       const targetY = Math.max(0, y - 20);
-      debugLog('[SCROLL] → Auto-scrolling to y=', targetY);
+      tsLog('SCROLL', '→ Auto-scrolling to y=', targetY);
 
       scrollTarget.current = targetY;
       isProgrammaticScroll.current = true;
@@ -172,7 +178,7 @@ const MatchedTextWidget = ({
         });
       });
     } else if (userHasScrolled.current) {
-      debugLog('[SCROLL] → Skipping auto-scroll (user has manually scrolled)');
+      tsLog('SCROLL', '→ Skipping auto-scroll (user has manually scrolled)');
     }
   }, []);
 
@@ -203,7 +209,7 @@ const MatchedTextWidget = ({
 
   // Scroll when highlight position changes (unless user has manually scrolled)
   useEffect(() => {
-    debugLog('[SCROLL] highlightPosition useEffect triggered:', {
+    tsLog('SCROLL', 'highlightPosition useEffect triggered:', {
       hasPosition: !!highlightPosition,
       yPosition: highlightYPosition.current,
       hasScrollRef: !!scrollViewRef.current,
@@ -212,7 +218,7 @@ const MatchedTextWidget = ({
 
     if (highlightPosition && highlightYPosition.current !== null && highlightYPosition.current > 0 && scrollViewRef.current && !userHasScrolled.current) {
       const targetY = Math.max(0, highlightYPosition.current - 20);
-      debugLog('[SCROLL] → Auto-scrolling via useEffect to y=', targetY);
+      tsLog('SCROLL', '→ Auto-scrolling via useEffect to y=', targetY);
 
       scrollTarget.current = targetY;
       isProgrammaticScroll.current = true;
@@ -222,7 +228,7 @@ const MatchedTextWidget = ({
         animated: true
       });
     } else if (userHasScrolled.current) {
-      debugLog('[SCROLL] → Skipping auto-scroll via useEffect (user has manually scrolled)');
+      tsLog('SCROLL', '→ Skipping auto-scroll via useEffect (user has manually scrolled)');
     }
   }, [highlightPosition]);
 

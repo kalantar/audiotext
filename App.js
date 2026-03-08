@@ -17,6 +17,15 @@ const debugLog = (...args) => {
   }
 };
 
+// Timestamped log: shows HH:MM:SS.mmm so taps can be correlated with log entries
+const tsLog = (tag, ...args) => {
+  if (__DEV__) {
+    const now = new Date();
+    const ts = now.toTimeString().slice(0, 8) + '.' + String(now.getMilliseconds()).padStart(3, '0');
+    console.log(`[${ts}] [${tag}]`, ...args);
+  }
+};
+
 // Helper function to get last N words from text
 const getLastWords = (text, wordCount) => {
   const words = text.trim().split(/\s+/).filter(word => word.length > 0);
@@ -92,6 +101,16 @@ export default function App() {
   });
   const searchIndexRef = useRef(null);
   const documentCacheRef = useRef({});
+  // Ref-based active flag: set synchronously on start/stop so onPartial can bail out immediately.
+  // Using a ref (not state) because state updates are async — queued bridge callbacks from
+  // SFSpeechRecognizer would still fire and trigger re-renders before state caught up.
+  const isRecordingActiveRef = useRef(false);
+  // Guard: only one performTextMatch execution at a time. The async body takes ~1-2s
+  // (findBestMatch across 13k candidates). Without this, debounce fires while a previous
+  // execution is in-flight, queuing multiple sequential JS-thread-blocking operations.
+  const isMatchingInProgressRef = useRef(false);
+  // Throttle onPartial: only forward to matcher when word count grows by 3+
+  const lastForwardedWordCountRef = useRef(0);
   const matchContextRef = useRef({
     previousDocId: null,
     previousParagraphNum: null,
@@ -107,27 +126,27 @@ export default function App() {
   // Load search index on mount
   useEffect(() => {
     const loadSearchIndex = async () => {
-      console.log('[MATCH] Loading search index...');
+      tsLog('MATCH', 'Loading search index...');
       try {
         if (Platform.OS === 'web') {
           // Web: load from public folder
           const response = await fetch('/search-index.json');
-          console.log('[MATCH] Fetch response:', response.status, response.ok);
+          tsLog('MATCH', 'Fetch response:', response.status, response.ok);
           if (response.ok) {
             const index = await response.json();
             searchIndexRef.current = index;
-            console.log('[MATCH] Search index loaded:', index.documents?.length, 'entries');
+            tsLog('MATCH', 'Search index loaded:', index.documents?.length, 'entries');
           } else {
-            console.log('[MATCH] Search index not found - text matching disabled');
+            tsLog('MATCH', 'Search index not found - text matching disabled');
           }
         } else {
           // Native (iOS/Android): require from assets folder
           const index = require('./assets/search-index.json');
           searchIndexRef.current = index;
-          console.log('[MATCH] Search index loaded (native):', index.documents?.length, 'entries');
+          tsLog('MATCH', 'Search index loaded (native):', index.documents?.length, 'entries');
         }
       } catch (err) {
-        console.log('[MATCH] Failed to load search index:', err.message);
+        tsLog('MATCH', 'Failed to load search index:', err.message);
       }
     };
 
@@ -140,19 +159,19 @@ export default function App() {
     // Cache by section (not paragraph) since we now fetch full sections
     const cacheKey = `${docId}-${section}`;
     if (documentCacheRef.current[cacheKey]) {
-      console.log('[FETCH] Cache hit:', cacheKey);
+      tsLog('FETCH', 'Cache hit:', cacheKey);
       return documentCacheRef.current[cacheKey];
     }
 
     try {
-      console.log('[FETCH] Fetching document:', docId, 'section:', section);
+      tsLog('FETCH', 'Fetching document:', docId, 'section:', section);
 
       let doc;
       if (Platform.OS === 'web') {
         // Web: fetch from public folder
         const response = await fetch(`/texts/${docId}.json`);
         if (!response.ok) {
-          console.log('[FETCH] Document not found:', docId, response.status);
+          tsLog('FETCH', 'Document not found:', docId, response.status);
           throw new Error(`Document not found: ${docId}`);
         }
         doc = await response.json();
@@ -160,12 +179,12 @@ export default function App() {
         // Native (iOS/Android): load from bundled assets
         doc = textAssets[docId];
         if (!doc) {
-          console.log('[FETCH] Document not found in assets:', docId);
+          tsLog('FETCH', 'Document not found in assets:', docId);
           throw new Error(`Document not found: ${docId}`);
         }
       }
 
-      console.log('[FETCH] Document loaded, sections:', doc.sections?.length);
+      tsLog('FETCH', 'Document loaded, sections:', doc.sections?.length);
 
       // Find the section by title (sections is an array, not an object)
       // Normalize for comparison: handle whitespace and case differences
@@ -179,10 +198,10 @@ export default function App() {
         ?? matchingSections?.[0];
 
       if (!sectionObj) {
-        console.log('[FETCH] Section not found:', section,
+        tsLog('FETCH', 'Section not found:', section,
           'Available:', doc.sections?.map(s => `"${s.title}"(${s.paragraphs?.length}p)`).join(', '));
       } else {
-        console.log('[FETCH] Section found:', sectionObj.title,
+        tsLog('FETCH', 'Section found:', sectionObj.title,
           `(${sectionObj.paragraphs?.length} paragraphs)`);
       }
 
@@ -200,7 +219,7 @@ export default function App() {
           }
         }
 
-        console.log('[FETCH] Full section:', sectionObj.paragraphs.length, 'paragraphs,', fullText.length, 'chars');
+        tsLog('FETCH', 'Full section:', sectionObj.paragraphs.length, 'paragraphs,', fullText.length, 'chars');
 
         const content = {
           docId,
@@ -215,32 +234,38 @@ export default function App() {
 
         // Cache for future use
         documentCacheRef.current[cacheKey] = content;
-        console.log('[FETCH] Content cached and returning');
+        tsLog('FETCH', 'Content cached and returning');
         return content;
       }
     } catch (err) {
-      console.log('[FETCH] Error:', err.message);
+      tsLog('FETCH', 'Error:', err.message);
     }
 
-    console.log('[FETCH] Returning null - content not found');
+    tsLog('FETCH', 'Returning null - content not found');
     return null;
   }, []);
 
   // Perform text matching (debounced)
   const performTextMatch = useCallback(
     debounce(async (words) => {
+      if (isMatchingInProgressRef.current) {
+        tsLog('MATCH', 'DROP (already in progress)');
+        return;
+      }
+      isMatchingInProgressRef.current = true;
+      tsLog('MATCH', 'START words=' + words.length);
       try {
         // Log summary: first 5 words ... last 5 words
         const wordsSummary = words.length <= 12
           ? words.join(' ')
           : words.slice(0, 5).join(' ') + ' ... ' + words.slice(-5).join(' ');
-        console.log('[MATCH] performTextMatch called with', words.length, 'words:', wordsSummary);
+        tsLog('MATCH', 'performTextMatch called with', words.length, 'words:', wordsSummary);
         if (!searchIndexRef.current) {
-          console.log('[MATCH] No search index loaded');
+          tsLog('MATCH', 'No search index loaded');
           return;
         }
         if (words.length < 8) {
-          console.log('[MATCH] Not enough words (need 8+):', words.length);
+          tsLog('MATCH', 'Not enough words (need 8+):', words.length);
           return;
         }
 
@@ -264,13 +289,13 @@ export default function App() {
               docId: lastMatch.docId,
               paragraphNum: lastMatch.paragraphNum + 1  // Predict next paragraph
             };
-            console.log('[MATCH] Temporal continuity detected: predicting',
+            tsLog('MATCH', 'Temporal continuity detected: predicting',
               prediction.docId, 'paragraph', prediction.paragraphNum);
           }
         }
 
         const match = findBestMatch(words, searchIndexRef.current, matchContextRef.current, prediction);
-        console.log('[MATCH] findBestMatch result:', match ? `${match.docId} score=${match.score?.toFixed(2)}` : 'no match');
+        tsLog('MATCH', 'findBestMatch result:', match ? `${match.docId} score=${match.score?.toFixed(2)}` : 'no match');
 
         if (match) {
           const ctx = matchContextRef.current;
@@ -299,7 +324,7 @@ export default function App() {
                      ', threshold:', SWITCH_THRESHOLD, ', early match:', isEarlyMatch, ')');
           }
 
-          console.log('[MATCH] Match found:', match.docId, match.section, 'paragraphNum:', match.paragraphNum, 'score:', match.score.toFixed(2));
+          tsLog('MATCH', 'Match found:', match.docId, match.section, 'paragraphNum:', match.paragraphNum, 'score:', match.score.toFixed(2));
 
           // Check if we're in the same section (full section is now displayed)
           const isSameSection = ctx.previousDocId === match.docId &&
@@ -327,12 +352,12 @@ export default function App() {
             if (isValidProgression && ctx.firstParagraphNum !== null) {
               // Valid progression: keep tracking from first matched paragraph
               firstParagraphIndex = ctx.firstParagraphNum - 1;
-              console.log('[MATCH] Valid progression:', isSameParagraph ? 'same paragraph' : isNextParagraph ? 'next paragraph' : isPrevParagraph ? 'previous paragraph' : 're-lock');
+              tsLog('MATCH', 'Valid progression:', isSameParagraph ? 'same paragraph' : isNextParagraph ? 'next paragraph' : isPrevParagraph ? 'previous paragraph' : 're-lock');
             } else {
               // Non-sequential jump or new section: reset highlight to current paragraph
               firstParagraphIndex = currentParagraphIndex;
               if (isSameSection && !isValidProgression) {
-                console.log('[MATCH] Non-sequential jump from paragraph', ctx.currentParagraphNum, 'to', match.paragraphNum, '- resetting highlight');
+                tsLog('MATCH', 'Non-sequential jump from paragraph', ctx.currentParagraphNum, 'to', match.paragraphNum, '- resetting highlight');
               }
             }
 
@@ -359,7 +384,7 @@ export default function App() {
               firstParagraphNum: firstParagraphIndex + 1  // Signals non-contiguous jump when it changes
             };
 
-            console.log('[MATCH] Paragraph-based highlight: paragraphs', firstParagraphIndex + 1, 'to', currentParagraphIndex + 1,
+            tsLog('MATCH', 'Paragraph-based highlight: paragraphs', firstParagraphIndex + 1, 'to', currentParagraphIndex + 1,
               '(chars', highlightStart, '-', highlightEnd, ')');
 
             // Update match history for temporal continuity (keep last 3)
@@ -405,6 +430,8 @@ export default function App() {
         debugLog('[MATCH] Error in performTextMatch:', err.message);
         setMatchState(prev => ({ ...prev, isLoading: false }));
       } finally {
+        isMatchingInProgressRef.current = false;
+        tsLog('MATCH', 'DONE');
         setIsMatching(false);
       }
     }, 250),  // Debounce interval - optimized for faster matching while maintaining stability
@@ -413,23 +440,52 @@ export default function App() {
 
   const { startListening, stopListening } = useSpeechRecognition({
     onPartial: useCallback((text) => {
+      if (!isRecordingActiveRef.current) {
+        tsLog('PARTIAL', 'DROP (recording stopped) words=' + text.split(/\s+/).filter(w=>w).length);
+        return;
+      }
       setTranscription(text);
       const words = getLastWords(text, MATCH_WINDOW_WORDS).split(/\s+/).filter(w => w.length > 0);
-      if (words.length >= 3) { setIsMatching(true); performTextMatch(words); }
+      // Only forward to matcher when word count grows by 3+ since last forward.
+      // Prevents SFSpeechRecognizer's high-frequency partials from flooding the debounce queue.
+      if (words.length >= 3 && words.length >= lastForwardedWordCountRef.current + 3) {
+        lastForwardedWordCountRef.current = words.length;
+        tsLog('PARTIAL', 'forward to matcher words=' + words.length + ' inProgress=' + isMatchingInProgressRef.current);
+        setIsMatching(true);
+        performTextMatch(words);
+      } else {
+        tsLog('PARTIAL', 'throttle skip words=' + words.length + ' lastForwarded=' + lastForwardedWordCountRef.current);
+      }
     }, [performTextMatch]),
     onFinal: useCallback((text) => {
+      if (!isRecordingActiveRef.current) {
+        tsLog('FINAL', 'DROP (recording stopped) words=' + text.split(/\s+/).filter(w=>w).length);
+        return;
+      }
       setTranscription(text);
       const words = getLastWords(text, MATCH_WINDOW_WORDS).split(/\s+/).filter(w => w.length > 0);
       if (words.length >= 3) { setIsMatching(true); performTextMatch(words); }
     }, [performTextMatch]),
-    onError: useCallback((err) => { Alert.alert('Recognition error', err.message); }, []),
+    onError: useCallback((err) => {
+      console.error('[App] Speech recognition error:', err.message);
+      const isPermissionError = err.message.toLowerCase().includes('permission') ||
+        err.message.toLowerCase().includes('access');
+      Alert.alert(
+        isPermissionError ? 'Permission Required' : 'Recognition Error',
+        err.message
+      );
+    }, []),
   });
 
   async function startRecording() {
     if (isRecording) return;
+    tsLog('RECORD', 'startRecording called');
 
     // Clear previous transcription and match state
     setTranscription('');
+    isRecordingActiveRef.current = true;
+    isMatchingInProgressRef.current = false;
+    lastForwardedWordCountRef.current = 0;
     matchContextRef.current = {
       previousDocId: null,
       previousParagraphNum: null,
@@ -448,11 +504,21 @@ export default function App() {
       confidence: 0
     });
     setIsRecording(true);
-    await startListening();
+    try {
+      await startListening();
+    } catch (err) {
+      setIsRecording(false);
+      Alert.alert('Error', 'Failed to start recording: ' + err.message);
+    }
   }
 
   function stopRecording() {
+    tsLog('RECORD', 'stopRecording called');
+    isRecordingActiveRef.current = false;
+    isMatchingInProgressRef.current = false;
     setIsRecording(false);
+    lastForwardedWordCountRef.current = 0;
+    performTextMatch.cancel();
     stopListening();
   }
 
