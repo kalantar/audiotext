@@ -6,20 +6,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **FollowAlong** is a React Native app that matches spoken words in real-time to Bahá'í religious texts. It combines speech-to-text transcription with fuzzy text matching to identify and display passages from the Bahá'í Reference Library as you speak them.
 
-The app uses Expo for cross-platform support (iOS, Android, Web) and a Node.js WebSocket server with Vosk for speech recognition.
+The app uses Expo for cross-platform support (iOS, Android, Web). On iOS/Android, speech recognition runs on-device via `expo-speech-recognition`. On web, audio is streamed to a local Vosk WebSocket server.
 
 ## Commands
 
 ### Expo App (frontend)
 ```bash
-npm install           # Install dependencies
-npm start             # Start Expo dev server
-npm run web           # Run in web browser
-npm run ios           # Run on iOS simulator (requires Xcode)
-npm run android       # Run on Android emulator
+npm install                    # Install dependencies
+npm start                      # Start Expo dev server (for web)
+npx expo run:ios               # Build and install on iOS device/simulator
+npm run web                    # Run in web browser
+npm run android                # Run on Android emulator
+npm test                       # Run all tests
+npm run test:ui                # Jest UI tests only
+npm run test:matching          # Text matching algorithm tests
 ```
 
-### Speech Recognition Server
+### Speech Recognition Server (web only — not needed for iOS/Android)
 ```bash
 cd server && npm install   # Install server dependencies (use Node.js v18 for Vosk compatibility)
 npm start                  # Start WebSocket server on port 2700
@@ -27,7 +30,8 @@ npm start                  # Start WebSocket server on port 2700
 
 ### Text Crawling (optional)
 ```bash
-node scripts/crawl-bahai-library.cjs   # Download texts from bahai.org/library
+node scripts/crawl-bahai-library.cjs    # Download texts from bahai.org/library
+node scripts/rebuild-search-index.cjs  # Rebuild index from existing text files
 ```
 
 See `docs/crawler-guide.md` for comprehensive documentation on crawling, configuration, and troubleshooting.
@@ -36,22 +40,38 @@ See `docs/crawler-guide.md` for comprehensive documentation on crawling, configu
 
 ### Data Flow
 ```
-App.js (audio recording) → WebSocket → server.js (Vosk) → transcription
+useSpeechRecognition hook
+  ├── iOS/Android: expo-speech-recognition (on-device, real-time partials)
+  └── Web: Vosk WebSocket server (streams 16kHz PCM audio)
+  ↓
+App.js (onPartial / onFinal callbacks)
   ↓
 textMatcher.js (fuzzy matching) → search-index.json → texts/{doc-id}.json
   ↓
-MatchedTextWidget (display with highlighting)
+MatchedTextWidget (display with growing highlight and auto-scroll)
 ```
 
+### STT Hook Architecture
+Speech recognition is split into three layers:
+
+- **`hooks/useSpeechRecognition.js`**: Platform dispatch hook. Calls `useNativeSTT` unconditionally (React hook rules require this), routes `startListening`/`stopListening` to the correct implementation at runtime.
+- **`hooks/speech/nativeSTT.js`**: iOS/Android. Uses `expo-speech-recognition` (wraps Apple SFSpeechRecognizer). `continuous: true` + `interimResults: true` delivers real-time partial results via the React Native bridge. Uses `abort()` on stop (not `stop()`) to discard buffered audio immediately — `stop()` processes the buffer and floods the bridge with results. Requires `requiresOnDeviceRecognition: true` (no network needed).
+- **`hooks/speech/vosk.js`**: Web. Streams 16kHz mono PCM audio over WebSocket to the local Vosk server. Accumulates finals across utterances internally.
+
 ### Frontend (App.js)
-- Records audio using Expo AV
-- Platform-specific audio handling:
-  - **Web**: MediaRecorder API with WebM → converts to 16kHz mono PCM via Web Audio API → streams 500ms chunks
-  - **Native (iOS/Android)**: Records WAV → sends complete file as 8KB PCM chunks after recording stops
+- Uses `useSpeechRecognition` hook for all audio input
+- Platform-specific transcription delivery:
+  - **iOS/Android**: Real-time partials as you speak (SFSpeechRecognizer)
+  - **Web**: Real-time partials via Vosk WebSocket server
+- Critical refs (not state) for synchronous control:
+  - `isRecordingActiveRef` — set `false` synchronously on stop; `onPartial`/`onFinal` check this and drop events immediately. State would be too late — queued bridge events arrive before state updates.
+  - `isMatchingInProgressRef` — prevents concurrent `findBestMatch` calls (each takes 3-15s on Hermes)
+  - `lastForwardedWordCountRef` — word-count throttle: only forward to matcher when word count grows by 3+, since SFSpeechRecognizer delivers many partials per second
+- `debounce.cancel()` called on stop to discard any pending debounce timer
 - Displays split view:
   - **Reading surface**: Full-width matched text display (MatchedTextWidget) with paper-like card layout
   - **Debug panel**: Transcription output and logs, accessible via Appbar bug icon (modal overlay)
-- Real-time text matching as transcription updates
+- All log statements use `tsLog(tag, ...)` which prepends `[HH:MM:SS.mmm]` for correlation with UI events
 
 ### Backend (server.js)
 - WebSocket server on port 2700
@@ -94,14 +114,16 @@ MatchedTextWidget (display with highlighting)
 
 ## Key Technical Details
 
-- **Audio format for Vosk**: 16-bit signed PCM, 16kHz, mono
+- **Audio format for Vosk** (web): 16-bit signed PCM, 16kHz, mono
 - **Node.js version**: v18 recommended (v20+ may have Vosk native module issues)
-- Use `debugLog()` helper for dev-only logging (checks `__DEV__`)
-- WebSocket sends: server uses `sendSafe()` to check connection state; App.js checks `wsRef.current.readyState === WebSocket.OPEN` inline before each send
-- Text matching runs **debounced** to avoid excessive computation
+- Use `tsLog(tag, ...)` helper for timestamped dev-only logging — produces `[HH:MM:SS.mmm] [TAG] ...`. Use `debugLog()` only for non-timestamped dev logs (e.g. stickiness decisions)
+- Text matching runs **debounced** (250ms) and **throttled** (every 3 words) to limit calls on Hermes
+- **Hermes/JSC performance**: iOS JS engine is much slower than V8. `findBestMatch` across 43k paragraphs takes 3-15s on device; `MIN_PREFIX_MATCHES=2` in Pass 1 reduces candidates from 43k to ~4k. Keep JS-thread work minimal — any blocking operation freezes the UI.
+- `abort()` vs `stop()` in expo-speech-recognition: `abort()` discards buffered audio immediately; `stop()` processes the buffer and can flood the bridge with result events for many seconds after stopping
+- `debounce()` in `textMatcher.js` has a `.cancel()` method — call it on stop to discard pending debounce timers
 - Match algorithm uses **fuzzy token overlap** (50% weight) + **n-gram similarity** (30% weight) + **neighborhood bonus** (0.10-0.15 when sequential progression detected)
 - Text matching uses a **45-word sliding window** instead of all accumulated words to enable paragraph progression
-- Audio chunks sent to Vosk every **~250ms** for faster transcription response
+- **WiFi requirement**: Dev builds (via `npx expo run:ios`) require WiFi to fetch the JS bundle from Metro on first load. Once loaded, the bundle is cached and the app works offline (STT is on-device, texts are bundled). Standalone EAS builds are fully offline from install.
 
 ## Coding Conventions
 
@@ -170,11 +192,12 @@ MatchedTextWidget (display with highlighting)
 ## Development Notes
 
 - The app name is "followalong" (in package.json) but the repo is "audiotext"
-- Transcription uses a circular buffer approach for efficient memory usage
-- Match context tracking maintains state across matches for continuity
-- Highlight positioning uses multiple fallback strategies for robustness
+- Match context tracking (`matchContextRef`) maintains state across matches for continuity
 - Auto-scroll implementation uses `onLayout` callback with `requestAnimationFrame`
 - **Cross-platform scroll detection**: Use `onScroll` (not `onScrollBeginDrag`) to detect user scrolling, as `onScrollBeginDrag` only fires for touch events and misses mouse wheel/trackpad scrolling on web. Use `isProgrammaticScroll` flag to distinguish programmatic `scrollTo()` calls from user-initiated scrolls.
+- **Testing with physical iOS device**: Connect via USB → trust developer certificate in iOS Settings → General → VPN & Device Management. If the Metro bundler QR code doesn't appear, enter the URL manually (`exp://[mac-ip]:8081`).
+- **Test environment style checks**: `props.style` on a React Native element is the raw value (often an array like `[textContent, highlightedText]`). Use `StyleSheet.flatten(style)` before checking merged properties like `backgroundColor`. Checking `style.backgroundColor` directly on an array always returns `undefined`.
+- **Testing useSpeechRecognition**: `isRecordingActiveRef.current` starts `false`. Tests that fire STT result events must first press the Record button (via `fireEvent.press(getByText('Record'))`) to set the ref to `true`, otherwise `onPartial`/`onFinal` drop events immediately.
 
 ### Auto-Scroll Behavior (MatchedTextWidget)
 
