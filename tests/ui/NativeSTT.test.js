@@ -148,13 +148,40 @@ describe('App - Native STT Integration', () => {
     expect(getByText('Stop')).toBeTruthy(); // still recording
   });
 
-  test('aborted error is silent — no alert shown', async () => {
+  test('aborted error is silent — no alert shown, recording continues', async () => {
     const { getByText } = render(<App />);
 
     await act(async () => { fireEvent.press(getByText('Record')); });
     await act(async () => { fireError('aborted'); });
 
     expect(Alert.alert).not.toHaveBeenCalled();
+    expect(getByText('Stop')).toBeTruthy(); // still recording — isRecording not reset
+  });
+
+  test('network error shows Recognition Error alert and returns to idle', async () => {
+    const { getByText } = render(<App />);
+
+    await act(async () => { fireEvent.press(getByText('Record')); });
+    await act(async () => { fireError('network'); });
+
+    expect(Alert.alert).toHaveBeenCalledWith('Recognition Error', expect.any(String));
+    expect(getByText('Record')).toBeTruthy(); // FAB returned to idle
+  });
+
+  test('isFinal=true result triggers matching pipeline', async () => {
+    const { queryAllByText, getByText } = render(<App />);
+
+    await act(async () => { fireEvent.press(getByText('Record')); });
+
+    // Fire a final result — onFinal bypasses word-count throttle, forwards directly to matcher
+    const stage3 = paragraph67TestCase.progressiveStages[2]; // 14-word stage
+    await act(async () => {
+      fireResult(stage3.words, true);
+    });
+
+    await waitFor(() => {
+      expect(queryAllByText(/gems of divine mysteries/i).length).toBeGreaterThan(0);
+    }, { timeout: 3000 });
   });
 
   test('3-word transcription produces no match — empty state remains', async () => {

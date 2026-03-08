@@ -2,8 +2,10 @@
 // Web STT implementation: streams audio to local Vosk WebSocket server.
 
 // Web-only: Vosk server must be running locally on the same machine.
-// This file is only loaded on Platform.OS === 'web' (see hooks/useSpeechRecognition.js).
-// Native iOS/Android uses nativeSTT.js instead and never reaches this URL.
+// This module is bundled on all platforms (Metro cannot tree-shake by platform at this layer),
+// but createVoskSTT() is only called on web (see hooks/useSpeechRecognition.js).
+// Any module-level globals using browser APIs (window, navigator, AudioContext) would break
+// native — keep all such references inside createVoskSTT() or its nested functions.
 const WS_URL = 'ws://localhost:2700';
 const TARGET_SAMPLE_RATE = 16000;
 
@@ -38,9 +40,8 @@ export function createVoskSTT({ onPartial, onFinal, onError }) {
           console.warn('[vosk] Received non-JSON message from server:', String(event.data).slice(0, 100));
           return;
         }
-        // Callback errors are not caught here. If onPartial/onFinal throw, the error
-        // becomes an unhandled rejection (the WebSocket onmessage handler is not async
-        // and cannot propagate back to the startListening caller). Keep those callbacks safe.
+        // Callback errors are not caught here. If onPartial/onFinal throw synchronously,
+        // the error escapes the onmessage handler uncaught. Keep those callbacks non-throwing.
         if (data.partial) {
           const combined = finalAccumulated
             ? finalAccumulated + ' ' + data.partial
@@ -63,7 +64,11 @@ export function createVoskSTT({ onPartial, onFinal, onError }) {
     try {
       await connectWS();
     } catch (err) {
-      onError(new Error('Could not connect to transcription server'));
+      const detail = err?.message ? ` (${err.message})` : '';
+      onError(new Error(
+        `Could not connect to the transcription server at ${WS_URL}${detail}. ` +
+        'Make sure the server is running: cd server && npm start'
+      ));
       return;
     }
 
@@ -96,7 +101,7 @@ export function createVoskSTT({ onPartial, onFinal, onError }) {
           };
           return;
         } catch (workletErr) {
-          console.warn('[vosk] AudioWorklet setup failed, falling back to ScriptProcessorNode:', workletErr.message);
+          console.error('[vosk] AudioWorklet setup failed, falling back to ScriptProcessorNode:', workletErr.message);
         }
       }
 
@@ -152,7 +157,9 @@ export function createVoskSTT({ onPartial, onFinal, onError }) {
       mediaStream = null;
     }
     if (audioContext) {
-      audioContext.close();
+      audioContext.close().catch((err) => {
+        console.warn('[vosk] Error closing AudioContext on stop:', err.message);
+      });
       audioContext = null;
     }
     // Capture ws reference before clearing it — prevents a new session started within

@@ -128,7 +128,7 @@ export default function App() {
             searchIndexRef.current = index;
             tsLog('MATCH', 'Search index loaded:', index.documents?.length, 'entries');
           } else {
-            tsLog('MATCH', 'Search index not found - text matching disabled');
+            throw new Error(`Search index not available (HTTP ${response.status})`);
           }
         } else {
           // Native (iOS/Android): require from assets folder
@@ -234,6 +234,7 @@ export default function App() {
       }
     } catch (err) {
       console.error('[FETCH] Error loading document:', err.message);
+      Alert.alert('Content Unavailable', `Could not load the matched passage. (${err.message})`);
     }
 
     tsLog('FETCH', 'Returning null - content not found');
@@ -257,10 +258,12 @@ export default function App() {
         tsLog('MATCH', 'performTextMatch called with', words.length, 'words:', wordsSummary);
         if (!searchIndexRef.current) {
           tsLog('MATCH', 'No search index loaded');
+          setIsMatching(false);
           return;
         }
         if (words.length < 8) {
           tsLog('MATCH', 'Not enough words (need 8+):', words.length);
+          setIsMatching(false);
           return;
         }
 

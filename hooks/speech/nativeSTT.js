@@ -6,7 +6,7 @@
 // This module does not accumulate across utterances — callers are responsible
 // for any cross-utterance accumulation if needed.
 
-import { useCallback } from 'react';
+import { useCallback, useRef, useEffect } from 'react';
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
@@ -26,15 +26,26 @@ const ERROR_MESSAGES = {
 // useNativeSTT is a hook rather than a factory because useSpeechRecognitionEvent
 // must be called during the React render cycle (hook rules). Event subscriptions
 // are registered at mount, before startListening() is called.
+//
+// useSpeechRecognitionEvent handlers are registered once at mount and cannot be
+// re-registered when props change. Use refs to ensure event handlers always call
+// the latest callbacks, even if the caller's useCallback identity changes.
 export function useNativeSTT({ onPartial, onFinal, onError }) {
+  const onPartialRef = useRef(onPartial);
+  const onFinalRef = useRef(onFinal);
+  const onErrorRef = useRef(onError);
+  useEffect(() => { onPartialRef.current = onPartial; }, [onPartial]);
+  useEffect(() => { onFinalRef.current = onFinal; }, [onFinal]);
+  useEffect(() => { onErrorRef.current = onError; }, [onError]);
+
   useSpeechRecognitionEvent('result', (event) => {
     if (!event.results?.length) { tsLog('NATIVE', 'result event: empty results'); return; }
     const transcript = event.results[event.results.length - 1]?.transcript ?? '';
     tsLog('NATIVE', `result isFinal=${event.isFinal} words=${transcript.split(/\s+/).filter(w=>w).length}`);
     if (event.isFinal) {
-      onFinal(transcript);
+      onFinalRef.current(transcript);
     } else {
-      onPartial(transcript);
+      onPartialRef.current(transcript);
     }
   });
 
@@ -42,7 +53,7 @@ export function useNativeSTT({ onPartial, onFinal, onError }) {
     const code = event.error ?? 'unknown';
     if (code === 'no-speech') return; // normal silence detection — not an error
     if (code === 'aborted') return;  // fired when we call abort() ourselves — not an error
-    onError(new Error(ERROR_MESSAGES[code] ?? `Speech recognition error (${code})`));
+    onErrorRef.current(new Error(ERROR_MESSAGES[code] ?? `Speech recognition error (${code})`));
   });
 
   const startListening = useCallback(async () => {
@@ -60,7 +71,7 @@ export function useNativeSTT({ onPartial, onFinal, onError }) {
     }
     tsLog('NATIVE', 'ExpoSpeechRecognitionModule.start() called');
     try {
-      ExpoSpeechRecognitionModule.start({
+      await ExpoSpeechRecognitionModule.start({
         lang: 'en-US',
         requiresOnDeviceRecognition: true,
         continuous: true,
@@ -74,13 +85,15 @@ export function useNativeSTT({ onPartial, onFinal, onError }) {
   const stopListening = useCallback(() => {
     tsLog('NATIVE', 'stopListening → abort() called');
     try {
-      // abort() discards buffered audio immediately — no further `result` events delivered.
-      // An `error` event with code `'aborted'` is still fired synchronously; the error
-      // handler above silences it. stop() would process the buffer and flood the bridge
-      // with result events, blocking the JS thread for many seconds.
+      // abort() prevents further audio processing — stop() would flush the buffer and
+      // flood the bridge with result events for many seconds. Any in-flight result events
+      // already dispatched are dropped by the isRecordingActiveRef guard in App.js.
+      // An `error` event with code `'aborted'` is still fired; the error handler above silences it.
       ExpoSpeechRecognitionModule.abort();
     } catch (err) {
-      console.warn('[nativeSTT] Error stopping speech recognition:', err.message);
+      console.error('[nativeSTT] Error stopping speech recognition:', err.message);
+      // If abort() throws, the recognizer may still be running — notify the caller.
+      onErrorRef.current(new Error('Failed to stop speech recognition cleanly. Please restart the app if issues persist.'));
     }
   }, []);
 

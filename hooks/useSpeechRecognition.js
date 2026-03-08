@@ -47,7 +47,7 @@ export function useSpeechRecognition({ onPartial, onFinal, onError }) {
     return () => { stopListening(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     // Empty deps is intentional: cleanup runs once on unmount. stopListening is stable
-    // for native (nativeStop is useCallback with a stable onError dep). For web,
+    // for native (nativeStop is useCallback([]) — always stable). For web,
     // it uses implRef.current which always holds the latest instance regardless.
   }, []);
 
