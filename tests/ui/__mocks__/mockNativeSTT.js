@@ -23,6 +23,13 @@ export function fireResult(transcript, isFinal = false) {
   }
 }
 
+/** Fire an error event with the given code (e.g. 'no-speech', 'aborted', 'not-allowed') */
+export function fireError(code) {
+  if (handlers['error']) {
+    handlers['error']({ error: code });
+  }
+}
+
 /** Reset all handlers and mock call history between tests */
 export function resetMock() {
   Object.keys(handlers).forEach(k => delete handlers[k]);
