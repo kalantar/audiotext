@@ -239,15 +239,22 @@ function hasMinimalOverlap(searchSignature, docTokens, threshold = 0.15) {
   return (matchCount / searchSignature.size) >= threshold;
 }
 
+// Candidates processed per chunk before yielding the event loop.
+// Each candidate takes ~3-5ms on Hermes; 50 candidates ≈ 150-250ms per chunk.
+// Yielding allows queued bridge events (e.g. Stop button press) to run between chunks.
+const PASS2_CHUNK_SIZE = 50;
+
 /**
  * Find best matching document entry for given transcribed words
  *
  * @param {string[]} words - Array of transcribed words from the sliding window (typically ~45 words). Returns null if fewer than 8 words are provided.
  * @param {Object} searchIndex - The loaded search index
  * @param {Object} context - Previous match context for continuity
- * @returns {Object|null} - Best match with score, or null if no good match
+ * @param {Object|null} prediction - Optional temporal prediction from match history
+ * @param {Object|null} cancelToken - Optional {cancelled: boolean} ref; set cancelled=true to abort mid-match
+ * @returns {Promise<Object|null>} - Best match with score, or null if no good match
  */
-export function findBestMatch(words, searchIndex, context = {}, prediction = null) {
+export async function findBestMatch(words, searchIndex, context = {}, prediction = null, cancelToken = null) {
   if (!searchIndex || !searchIndex.documents || words.length < 8) {
     return null;
   }
@@ -299,12 +306,21 @@ export function findBestMatch(words, searchIndex, context = {}, prediction = nul
     }
   }
 
-  // PASS 2: Detailed fuzzy matching only on candidates
+  // PASS 2: Detailed fuzzy matching only on candidates.
+  // Processed in chunks of PASS2_CHUNK_SIZE with a yield between chunks so the JS
+  // event loop can process queued bridge events (e.g. Stop button press). If cancelToken
+  // is set to cancelled=true during a yield, returns null immediately.
   let bestMatch = null;
   let bestScore = 0;
   let debugTopMatches = [];
 
-  for (const doc of candidates) {
+  for (let idx = 0; idx < candidates.length; idx++) {
+    if (idx > 0 && idx % PASS2_CHUNK_SIZE === 0) {
+      if (cancelToken?.cancelled) return null;
+      await new Promise(r => setTimeout(r, 0));
+      if (cancelToken?.cancelled) return null;
+    }
+    const doc = candidates[idx];
     // Calculate fuzzy token overlap score
     const tokenScore = fuzzyTokenOverlap(searchTokens, doc.tokens);
 

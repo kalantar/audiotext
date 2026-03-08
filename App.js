@@ -100,6 +100,10 @@ export default function App() {
   // JS-thread operation. Reset on stop so a stale true never blocks the next session;
   // the isRecordingActiveRef guard prevents new calls from entering after stop anyway.
   const isMatchingInProgressRef = useRef(false);
+  // Cancel token for the in-flight findBestMatch call. Set cancelled=true in stopRecording
+  // so findBestMatch aborts at the next chunk boundary (~200ms) rather than running to
+  // completion (potentially 10-30s) before the Stop button press is processed.
+  const matchCancelTokenRef = useRef(null);
   // Throttle onPartial: only forward to matcher when word count grows by 3+
   const lastForwardedWordCountRef = useRef(0);
   const matchContextRef = useRef({
@@ -292,7 +296,9 @@ export default function App() {
           }
         }
 
-        const match = findBestMatch(words, searchIndexRef.current, matchContextRef.current, prediction);
+        const cancelToken = { cancelled: false };
+        matchCancelTokenRef.current = cancelToken;
+        const match = await findBestMatch(words, searchIndexRef.current, matchContextRef.current, prediction, cancelToken);
         tsLog('MATCH', 'findBestMatch result:', match ? `${match.docId} score=${match.score?.toFixed(2)}` : 'no match');
 
         if (match) {
@@ -525,6 +531,7 @@ export default function App() {
     tsLog('RECORD', 'stopRecording called');
     isRecordingActiveRef.current = false;
     isMatchingInProgressRef.current = false;
+    if (matchCancelTokenRef.current) matchCancelTokenRef.current.cancelled = true;
     setIsRecording(false);
     lastForwardedWordCountRef.current = 0;
     performTextMatch.cancel();
