@@ -6,23 +6,12 @@ import MatchedTextWidget from './components/MatchedTextWidget';
 import { findBestMatch, findHighlightPosition, getDocumentMetadata, debounce } from './utils/textMatcher';
 import textAssets from './assets/textAssets';
 import { useSpeechRecognition } from './hooks/useSpeechRecognition';
+import { tsLog } from './utils/log';
 
-// Development-only logging helper
-// __DEV__ is a built-in React Native constant that is automatically:
-// - true in development builds (enables logging)
-// - false in production builds (disables logging for performance and security)
+// Development-only logging helper for non-timestamped messages (e.g. stickiness decisions)
 const debugLog = (...args) => {
   if (__DEV__) {
     console.log(...args);
-  }
-};
-
-// Timestamped log: shows HH:MM:SS.mmm so taps can be correlated with log entries
-const tsLog = (tag, ...args) => {
-  if (__DEV__) {
-    const now = new Date();
-    const ts = now.toTimeString().slice(0, 8) + '.' + String(now.getMilliseconds()).padStart(3, '0');
-    console.log(`[${ts}] [${tag}]`, ...args);
   }
 };
 
@@ -105,9 +94,11 @@ export default function App() {
   // Using a ref (not state) because state updates are async — queued bridge callbacks from
   // SFSpeechRecognizer would still fire and trigger re-renders before state caught up.
   const isRecordingActiveRef = useRef(false);
-  // Guard: only one performTextMatch execution at a time. The async body takes ~1-2s
-  // (findBestMatch across 13k candidates). Without this, debounce fires while a previous
-  // execution is in-flight, queuing multiple sequential JS-thread-blocking operations.
+  // Guard: only one performTextMatch execution at a time. findBestMatch across ~4k
+  // candidates (after MIN_PREFIX_MATCHES=2 filtering) takes 3-15s on Hermes. Without
+  // this, a debounce firing while a previous run is in-flight queues another blocking
+  // JS-thread operation. Reset on stop so a stale true never blocks the next session;
+  // the isRecordingActiveRef guard prevents new calls from entering after stop anyway.
   const isMatchingInProgressRef = useRef(false);
   // Throttle onPartial: only forward to matcher when word count grows by 3+
   const lastForwardedWordCountRef = useRef(0);
@@ -146,7 +137,11 @@ export default function App() {
           tsLog('MATCH', 'Search index loaded (native):', index.documents?.length, 'entries');
         }
       } catch (err) {
-        tsLog('MATCH', 'Failed to load search index:', err.message);
+        console.error('[MATCH] Failed to load search index:', err.message);
+        Alert.alert(
+          'Content Unavailable',
+          'Could not load the text library. Text matching will not be available this session.'
+        );
       }
     };
 
@@ -238,7 +233,7 @@ export default function App() {
         return content;
       }
     } catch (err) {
-      tsLog('FETCH', 'Error:', err.message);
+      console.error('[FETCH] Error loading document:', err.message);
     }
 
     tsLog('FETCH', 'Returning null - content not found');
@@ -427,7 +422,7 @@ export default function App() {
           }
         }
       } catch (err) {
-        debugLog('[MATCH] Error in performTextMatch:', err.message);
+        console.error('[MATCH] Error in performTextMatch:', err?.message ?? err);
         setMatchState(prev => ({ ...prev, isLoading: false }));
       } finally {
         isMatchingInProgressRef.current = false;
@@ -464,17 +459,28 @@ export default function App() {
       }
       setTranscription(text);
       const words = getLastWords(text, MATCH_WINDOW_WORDS).split(/\s+/).filter(w => w.length > 0);
-      if (words.length >= 3) { setIsMatching(true); performTextMatch(words); }
+      if (words.length >= 3) {
+        lastForwardedWordCountRef.current = words.length;
+        setIsMatching(true);
+        performTextMatch(words);
+      }
     }, [performTextMatch]),
     onError: useCallback((err) => {
-      console.error('[App] Speech recognition error:', err.message);
-      const isPermissionError = err.message.toLowerCase().includes('permission') ||
-        err.message.toLowerCase().includes('access');
+      console.error('[App] Speech recognition error:', err?.message ?? err);
+      // Reset recording state — both nativeSTT and vosk call onError directly without
+      // throwing, so the startRecording catch never fires for runtime errors like
+      // permission denial or microphone capture failure.
+      isRecordingActiveRef.current = false;
+      setIsRecording(false);
+      performTextMatch.cancel();
+      const message = err?.message ?? String(err) ?? 'An unknown error occurred.';
+      const isPermissionError = message.toLowerCase().includes('permission') ||
+        message.toLowerCase().includes('access');
       Alert.alert(
         isPermissionError ? 'Permission Required' : 'Recognition Error',
-        err.message
+        message
       );
-    }, []),
+    }, [performTextMatch]),
   });
 
   async function startRecording() {
@@ -507,8 +513,9 @@ export default function App() {
     try {
       await startListening();
     } catch (err) {
+      isRecordingActiveRef.current = false;
       setIsRecording(false);
-      Alert.alert('Error', 'Failed to start recording: ' + err.message);
+      Alert.alert('Error', 'Failed to start recording: ' + (err?.message ?? err));
     }
   }
 
@@ -653,6 +660,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     color: '#2c2c2c', // Match theme text color
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
 });

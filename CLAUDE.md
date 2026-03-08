@@ -70,7 +70,7 @@ Speech recognition is split into three layers:
 - `debounce.cancel()` called on stop to discard any pending debounce timer
 - Displays split view:
   - **Reading surface**: Full-width matched text display (MatchedTextWidget) with paper-like card layout
-  - **Debug panel**: Transcription output and logs, accessible via Appbar bug icon (modal overlay)
+  - **Debug panel**: Transcription output and logs, accessible via bug icon button (top-right `IconButton`) (modal overlay)
 - All log statements use `tsLog(tag, ...)` which prepends `[HH:MM:SS.mmm]` for correlation with UI events
 
 ### Backend (server.js)
@@ -178,7 +178,7 @@ Speech recognition is split into three layers:
 
 ### Debug vs Production UI
 - **Hidden by Default**: Debug information (transcription, logs) hidden from production reading interface.
-- **Accessible When Needed**: Debug panel accessed via Appbar bug icon, displayed in modal overlay.
+- **Accessible When Needed**: Debug panel accessed via bug icon button (top-right `IconButton`), displayed in modal overlay.
 - **Non-Intrusive**: Debug features don't clutter reading experience or distract from primary content.
 - **Developer-Friendly**: Debug panel designed for copying text and creating test cases (monospace font, scrollable).
 

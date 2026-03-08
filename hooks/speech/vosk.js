@@ -1,6 +1,9 @@
 // hooks/speech/vosk.js
 // Web STT implementation: streams audio to local Vosk WebSocket server.
 
+// Web-only: Vosk server must be running locally on the same machine.
+// This file is only loaded on Platform.OS === 'web' (see hooks/useSpeechRecognition.js).
+// Native iOS/Android uses nativeSTT.js instead and never reaches this URL.
 const WS_URL = 'ws://localhost:2700';
 const TARGET_SAMPLE_RATE = 16000;
 
@@ -35,7 +38,9 @@ export function createVoskSTT({ onPartial, onFinal, onError }) {
           console.warn('[vosk] Received non-JSON message from server:', String(event.data).slice(0, 100));
           return;
         }
-        // Callback errors are intentionally NOT caught here — they propagate to the caller
+        // Callback errors are not caught here. If onPartial/onFinal throw, the error
+        // becomes an unhandled rejection (the WebSocket onmessage handler is not async
+        // and cannot propagate back to the startListening caller). Keep those callbacks safe.
         if (data.partial) {
           const combined = finalAccumulated
             ? finalAccumulated + ' ' + data.partial
@@ -118,6 +123,22 @@ export function createVoskSTT({ onPartial, onFinal, onError }) {
         }
       };
     } catch (err) {
+      // Clean up any partially initialized resources before surfacing the error.
+      // Without this, a getUserMedia or AudioContext failure would leave the WebSocket
+      // open (server accumulates idle connections) and the mic track live (browser
+      // microphone indicator stays lit).
+      if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+      if (audioContext && audioContext.state !== 'closed') {
+        audioContext.close().catch(() => {});
+        audioContext = null;
+      }
+      workletNode = null;
+      scriptProcessor = null;
+      sourceNode = null;
+      const wsToClose = ws; ws = null;
+      if (wsToClose && wsToClose.readyState !== WebSocket.CLOSING && wsToClose.readyState !== WebSocket.CLOSED) {
+        wsToClose.close();
+      }
       onError(err);
     }
   }

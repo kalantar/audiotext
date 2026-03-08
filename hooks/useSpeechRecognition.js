@@ -45,7 +45,11 @@ export function useSpeechRecognition({ onPartial, onFinal, onError }) {
   // Clean up audio resources if the component unmounts while recording
   useEffect(() => {
     return () => { stopListening(); };
-  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Empty deps is intentional: cleanup runs once on unmount. stopListening is stable
+    // for native (nativeStop is useCallback with a stable onError dep). For web,
+    // it uses implRef.current which always holds the latest instance regardless.
+  }, []);
 
   return { startListening, stopListening, isListening };
 }

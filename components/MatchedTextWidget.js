@@ -22,15 +22,7 @@ import {
   IconButton,
   useTheme
 } from 'react-native-paper';
-
-// Timestamped log: shows HH:MM:SS.mmm so taps can be correlated with log entries
-function tsLog(tag, ...args) {
-  if (typeof __DEV__ !== 'undefined' ? __DEV__ : true) {
-    const now = new Date();
-    const ts = now.toTimeString().slice(0, 8) + '.' + String(now.getMilliseconds()).padStart(3, '0');
-    console.log(`[${ts}] [${tag}]`, ...args);
-  }
-}
+import { tsLog } from '../utils/log';
 
 /**
  * Document Header Component

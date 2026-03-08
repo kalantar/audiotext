@@ -87,9 +87,15 @@ describe('App - Native STT Integration', () => {
   });
 
   test('3-word transcription produces no match — empty state remains', async () => {
-    const { queryByText } = render(<App />);
+    const { queryByText, getByText } = render(<App />);
 
-    // Fire a 3-word partial result (too few words for matching)
+    // Start recording so isRecordingActiveRef = true; otherwise onPartial drops the event
+    // immediately and the test would pass for the wrong reason.
+    await act(async () => {
+      fireEvent.press(getByText('Record'));
+    });
+
+    // Fire a 3-word partial result — below the 8-word minimum for matching
     const stage1 = paragraph67TestCase.progressiveStages[0]; // 3 words
     await act(async () => {
       fireResult(stage1.words, false);

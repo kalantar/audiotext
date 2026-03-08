@@ -7,18 +7,11 @@
 // for any cross-utterance accumulation if needed.
 
 import { useCallback } from 'react';
-
-const tsLog = (tag, ...args) => {
-  if (__DEV__) {
-    const now = new Date();
-    const ts = now.toTimeString().slice(0, 8) + '.' + String(now.getMilliseconds()).padStart(3, '0');
-    console.log(`[${ts}] [${tag}]`, ...args);
-  }
-};
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
 } from 'expo-speech-recognition';
+import { tsLog } from '../../utils/log';
 
 // Error codes from expo-speech-recognition mapped to user-readable messages.
 // 'no-speech' is a normal operating condition (silence) — not shown to user.
@@ -81,9 +74,10 @@ export function useNativeSTT({ onPartial, onFinal, onError }) {
   const stopListening = useCallback(() => {
     tsLog('NATIVE', 'stopListening → abort() called');
     try {
-      // abort() discards buffered audio immediately — no remaining results delivered.
-      // stop() would process remaining audio and flood the bridge with result events,
-      // blocking the JS thread until the buffer drains (can take many seconds).
+      // abort() discards buffered audio immediately — no further `result` events delivered.
+      // An `error` event with code `'aborted'` is still fired synchronously; the error
+      // handler above silences it. stop() would process the buffer and flood the bridge
+      // with result events, blocking the JS thread for many seconds.
       ExpoSpeechRecognitionModule.abort();
     } catch (err) {
       console.warn('[nativeSTT] Error stopping speech recognition:', err.message);
