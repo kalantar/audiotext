@@ -466,7 +466,6 @@ export default function App() {
       }
     }, [performTextMatch]),
     onError: useCallback((err) => {
-      console.error('[App] Speech recognition error:', err?.message ?? err);
       // Reset recording state — both nativeSTT and vosk call onError directly without
       // throwing, so the startRecording catch never fires for runtime errors like
       // permission denial or microphone capture failure.
