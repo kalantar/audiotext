@@ -10,7 +10,6 @@
  */
 
 import React from 'react';
-import { Alert } from 'react-native';
 import { render, act, waitFor, fireEvent } from '@testing-library/react-native';
 import App from '../../App';
 import { paragraph67TestCase } from '../fixtures/paragraph-67-test';
@@ -41,8 +40,6 @@ describe('App - Native STT Integration', () => {
     resetMock();
     // Restore default permission grant after any test that overrides it
     ExpoSpeechRecognitionModule.requestPermissionsAsync.mockResolvedValue({ granted: true });
-    jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-
     // Mock fetch for document content (Platform.OS='ios' uses textAssets for the document,
     // but fetch is still used if textAssets returns null; mockTextAssets handles it)
     global.fetch = jest.fn((url) => {
@@ -125,46 +122,36 @@ describe('App - Native STT Integration', () => {
     expect(queryByText(/other section/i)).toBeFalsy();
   });
 
-  test('permission denied shows Permission Required alert and returns to idle', async () => {
+  test('permission denied shows error snackbar and returns to idle', async () => {
     ExpoSpeechRecognitionModule.requestPermissionsAsync.mockResolvedValue({ granted: false });
-
-    const { getByText } = render(<App />);
-
+    const { getByText, queryByTestId } = render(<App />);
     await act(async () => { fireEvent.press(getByText('Record')); });
-    // Wait for the async permission check to complete
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)); });
-
-    expect(Alert.alert).toHaveBeenCalledWith('Permission Required', expect.any(String));
-    expect(getByText('Record')).toBeTruthy(); // FAB returned to idle — not stuck on Stop
+    expect(queryByTestId('error-snackbar')).toBeTruthy(); // Snackbar visible
+    expect(getByText('Record')).toBeTruthy(); // FAB returned to idle
   });
 
-  test('no-speech error is silent — no alert shown, recording continues', async () => {
-    const { getByText } = render(<App />);
-
+  test('no-speech error is silent — no snackbar shown, recording continues', async () => {
+    const { getByText, queryByTestId } = render(<App />);
     await act(async () => { fireEvent.press(getByText('Record')); });
     await act(async () => { fireError('no-speech'); });
-
-    expect(Alert.alert).not.toHaveBeenCalled();
-    expect(getByText('Stop')).toBeTruthy(); // still recording
+    expect(queryByTestId('error-snackbar')).toBeFalsy(); // no snackbar
+    expect(getByText('Stop')).toBeTruthy();
   });
 
-  test('aborted error is silent — no alert shown, recording continues', async () => {
-    const { getByText } = render(<App />);
-
+  test('aborted error is silent — no snackbar shown, recording continues', async () => {
+    const { getByText, queryByTestId } = render(<App />);
     await act(async () => { fireEvent.press(getByText('Record')); });
     await act(async () => { fireError('aborted'); });
-
-    expect(Alert.alert).not.toHaveBeenCalled();
-    expect(getByText('Stop')).toBeTruthy(); // still recording — isRecording not reset
+    expect(queryByTestId('error-snackbar')).toBeFalsy(); // no snackbar
+    expect(getByText('Stop')).toBeTruthy();
   });
 
-  test('network error shows Recognition Error alert and returns to idle', async () => {
-    const { getByText } = render(<App />);
-
+  test('network error shows error snackbar and returns to idle', async () => {
+    const { getByText, queryByTestId } = render(<App />);
     await act(async () => { fireEvent.press(getByText('Record')); });
     await act(async () => { fireError('network'); });
-
-    expect(Alert.alert).toHaveBeenCalledWith('Recognition Error', expect.any(String));
+    expect(queryByTestId('error-snackbar')).toBeTruthy(); // Snackbar visible
     expect(getByText('Record')).toBeTruthy(); // FAB returned to idle
   });
 
