@@ -1,16 +1,14 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View, Alert, ScrollView, Platform, SafeAreaView, Dimensions } from 'react-native';
-import { Audio } from 'expo-av';
 import { Provider as PaperProvider, MD3LightTheme, FAB, IconButton, Portal, Modal } from 'react-native-paper';
 import MatchedTextWidget from './components/MatchedTextWidget';
 import { findBestMatch, findHighlightPosition, getDocumentMetadata, debounce } from './utils/textMatcher';
 import textAssets from './assets/textAssets';
+import { useSpeechRecognition } from './hooks/useSpeechRecognition';
+import { tsLog } from './utils/log';
 
-// Development-only logging helper
-// __DEV__ is a built-in React Native constant that is automatically:
-// - true in development builds (enables logging)
-// - false in production builds (disables logging for performance and security)
+// Development-only logging helper for non-timestamped messages (e.g. stickiness decisions)
 const debugLog = (...args) => {
   if (__DEV__) {
     console.log(...args);
@@ -35,23 +33,6 @@ const getLastWords = (text, wordCount) => {
 export function computeSwitchThreshold(matchCount) {
   return matchCount < 3 ? -0.10 : 0.15;
 }
-
-// WebSocket server configuration
-// Auto-detects platform and returns appropriate URL:
-// - Web: localhost (server running on same machine)
-// - iOS/Android: Local network IP (for physical devices)
-const getWebSocketUrl = () => {
-  if (Platform.OS === 'web') {
-    return 'ws://localhost:2700';
-  }
-
-  // For iOS/Android physical devices, use your development machine's IP
-  // Update this IP to match your machine's local network address
-  const DEV_SERVER_IP = '192.168.1.198';
-  return `ws://${DEV_SERVER_IP}:2700`;
-};
-
-const WS_SERVER_URL = getWebSocketUrl();
 
 // Number of recent words to use for text matching
 // Large enough for noisy/KJ-English transcription signal, small enough to track progression
@@ -94,17 +75,9 @@ const customTheme = {
 };
 
 export default function App() {
-  const [recording, setRecording] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [transcription, setTranscription] = useState('');
   const [showDebugPanel, setShowDebugPanel] = useState(false);
-  const wsRef = useRef(null);
-  const finalTranscriptionRef = useRef('');
-  const webMediaStreamRef = useRef(null);
-  const workletNodeRef = useRef(null);
-  const sourceNodeRef = useRef(null);
-  const recordingIntervalRef = useRef(null);
-  const audioContextRef = useRef(null);
 
   // Text matching state
   const [isMatching, setIsMatching] = useState(false);
@@ -117,6 +90,22 @@ export default function App() {
   });
   const searchIndexRef = useRef(null);
   const documentCacheRef = useRef({});
+  // Ref-based active flag: set synchronously on start/stop so onPartial can bail out immediately.
+  // Using a ref (not state) because state updates are async — queued bridge callbacks from
+  // SFSpeechRecognizer would still fire and trigger re-renders before state caught up.
+  const isRecordingActiveRef = useRef(false);
+  // Guard: only one performTextMatch execution at a time. findBestMatch across ~4k
+  // candidates (after MIN_PREFIX_MATCHES=2 filtering) takes 3-15s on Hermes. Without
+  // this, a debounce firing while a previous run is in-flight queues another blocking
+  // JS-thread operation. Reset on stop so a stale true never blocks the next session;
+  // the isRecordingActiveRef guard prevents new calls from entering after stop anyway.
+  const isMatchingInProgressRef = useRef(false);
+  // Cancel token for the in-flight findBestMatch call. Set cancelled=true in stopRecording
+  // so findBestMatch aborts at the next chunk boundary (up to ~250ms per chunk of 50
+  // candidates on Hermes) rather than running to completion (10-30s) before Stop is processed.
+  const matchCancelTokenRef = useRef(null);
+  // Throttle onPartial: only forward to matcher when word count grows by 3+
+  const lastForwardedWordCountRef = useRef(0);
   const matchContextRef = useRef({
     previousDocId: null,
     previousParagraphNum: null,
@@ -128,111 +117,35 @@ export default function App() {
     matchHistory: [],  // Track last 3 matches for temporal continuity
     matchCount: 0  // Track number of matches for dynamic stickiness threshold
   });
-  const audioChunksRef = useRef([]); // Circular buffer for recent audio
-
-  // Initialize WebSocket connection
-  const connectWebSocket = () => {
-    return new Promise((resolve, reject) => {
-      try {
-        const ws = new WebSocket(WS_SERVER_URL);
-        
-        ws.onopen = () => {
-          debugLog('WebSocket connected');
-          wsRef.current = ws;
-          resolve(ws);
-        };
-        
-        ws.onerror = (error) => {
-          debugLog('WebSocket error:', error);
-          wsRef.current = null;
-          reject(error);
-        };
-        
-        ws.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (data.partial) {
-              // Partial results replace the current partial text (not append)
-              // Vosk sends the complete partial transcription so far, not incremental
-              const combined = finalTranscriptionRef.current && finalTranscriptionRef.current.trim().length > 0
-                ? finalTranscriptionRef.current + ' ' + data.partial
-                : data.partial;
-              setTranscription(combined);
-
-              // Trigger text matching using a sliding window of recent words
-              const recentText = getLastWords(combined, MATCH_WINDOW_WORDS);
-              const wordsToMatch = recentText.split(/\s+/).filter(w => w.length > 0);
-              if (wordsToMatch.length >= 3) {
-                setIsMatching(true);
-                performTextMatch(wordsToMatch);
-              }
-            } else if (data.final && data.final.trim().length > 0) {
-              // Final results are appended to the accumulated final transcription
-              const newFinal = finalTranscriptionRef.current && finalTranscriptionRef.current.trim().length > 0
-                ? finalTranscriptionRef.current + ' ' + data.final
-                : data.final;
-              finalTranscriptionRef.current = newFinal;
-              // Update display with the new final transcription
-              setTranscription(newFinal);
-
-              // Trigger text matching using a sliding window of recent words
-              const recentText = getLastWords(newFinal, MATCH_WINDOW_WORDS);
-              const wordsToMatch = recentText.split(/\s+/).filter(w => w.length > 0);
-              if (wordsToMatch.length >= 3) {
-                setIsMatching(true);
-                performTextMatch(wordsToMatch);
-              }
-            }
-          } catch (err) {
-            debugLog('Error parsing transcription:', err);
-          }
-        };
-        
-        ws.onclose = () => {
-          debugLog('WebSocket closed');
-          wsRef.current = null;
-        };
-      } catch (err) {
-        reject(err);
-      }
-    });
-  };
-
-  // Close WebSocket connection
-  const closeWebSocket = () => {
-    if (wsRef.current) {
-      const ws = wsRef.current;
-      if (ws.readyState !== WebSocket.CLOSING && ws.readyState !== WebSocket.CLOSED) {
-        ws.close();
-      }
-      wsRef.current = null;
-    }
-  };
 
   // Load search index on mount
   useEffect(() => {
     const loadSearchIndex = async () => {
-      console.log('[MATCH] Loading search index...');
+      tsLog('MATCH', 'Loading search index...');
       try {
         if (Platform.OS === 'web') {
           // Web: load from public folder
           const response = await fetch('/search-index.json');
-          console.log('[MATCH] Fetch response:', response.status, response.ok);
+          tsLog('MATCH', 'Fetch response:', response.status, response.ok);
           if (response.ok) {
             const index = await response.json();
             searchIndexRef.current = index;
-            console.log('[MATCH] Search index loaded:', index.documents?.length, 'entries');
+            tsLog('MATCH', 'Search index loaded:', index.documents?.length, 'entries');
           } else {
-            console.log('[MATCH] Search index not found - text matching disabled');
+            throw new Error(`Search index not available (HTTP ${response.status})`);
           }
         } else {
           // Native (iOS/Android): require from assets folder
           const index = require('./assets/search-index.json');
           searchIndexRef.current = index;
-          console.log('[MATCH] Search index loaded (native):', index.documents?.length, 'entries');
+          tsLog('MATCH', 'Search index loaded (native):', index.documents?.length, 'entries');
         }
       } catch (err) {
-        console.log('[MATCH] Failed to load search index:', err.message);
+        console.error('[MATCH] Failed to load search index:', err.message);
+        Alert.alert(
+          'Content Unavailable',
+          'Could not load the text library. Text matching will not be available this session.'
+        );
       }
     };
 
@@ -244,20 +157,24 @@ export default function App() {
   const fetchDocumentContent = useCallback(async (docId, section, paragraphNum) => {
     // Cache by section (not paragraph) since we now fetch full sections
     const cacheKey = `${docId}-${section}`;
-    if (documentCacheRef.current[cacheKey]) {
-      console.log('[FETCH] Cache hit:', cacheKey);
+    if (cacheKey in documentCacheRef.current) {
+      if (documentCacheRef.current[cacheKey] === null) {
+        tsLog('FETCH', 'Skip (previously failed):', cacheKey);
+        return null;
+      }
+      tsLog('FETCH', 'Cache hit:', cacheKey);
       return documentCacheRef.current[cacheKey];
     }
 
     try {
-      console.log('[FETCH] Fetching document:', docId, 'section:', section);
+      tsLog('FETCH', 'Fetching document:', docId, 'section:', section);
 
       let doc;
       if (Platform.OS === 'web') {
         // Web: fetch from public folder
         const response = await fetch(`/texts/${docId}.json`);
         if (!response.ok) {
-          console.log('[FETCH] Document not found:', docId, response.status);
+          tsLog('FETCH', 'Document not found:', docId, response.status);
           throw new Error(`Document not found: ${docId}`);
         }
         doc = await response.json();
@@ -265,12 +182,12 @@ export default function App() {
         // Native (iOS/Android): load from bundled assets
         doc = textAssets[docId];
         if (!doc) {
-          console.log('[FETCH] Document not found in assets:', docId);
+          tsLog('FETCH', 'Document not found in assets:', docId);
           throw new Error(`Document not found: ${docId}`);
         }
       }
 
-      console.log('[FETCH] Document loaded, sections:', doc.sections?.length);
+      tsLog('FETCH', 'Document loaded, sections:', doc.sections?.length);
 
       // Find the section by title (sections is an array, not an object)
       // Normalize for comparison: handle whitespace and case differences
@@ -284,10 +201,10 @@ export default function App() {
         ?? matchingSections?.[0];
 
       if (!sectionObj) {
-        console.log('[FETCH] Section not found:', section,
+        tsLog('FETCH', 'Section not found:', section,
           'Available:', doc.sections?.map(s => `"${s.title}"(${s.paragraphs?.length}p)`).join(', '));
       } else {
-        console.log('[FETCH] Section found:', sectionObj.title,
+        tsLog('FETCH', 'Section found:', sectionObj.title,
           `(${sectionObj.paragraphs?.length} paragraphs)`);
       }
 
@@ -305,7 +222,7 @@ export default function App() {
           }
         }
 
-        console.log('[FETCH] Full section:', sectionObj.paragraphs.length, 'paragraphs,', fullText.length, 'chars');
+        tsLog('FETCH', 'Full section:', sectionObj.paragraphs.length, 'paragraphs,', fullText.length, 'chars');
 
         const content = {
           docId,
@@ -320,32 +237,42 @@ export default function App() {
 
         // Cache for future use
         documentCacheRef.current[cacheKey] = content;
-        console.log('[FETCH] Content cached and returning');
+        tsLog('FETCH', 'Content cached and returning');
         return content;
       }
     } catch (err) {
-      console.log('[FETCH] Error:', err.message);
+      console.error('[FETCH] Error loading document:', err);
+      documentCacheRef.current[cacheKey] = null; // prevent retry and repeated alert this session
+      Alert.alert('Content Unavailable', `Could not load the matched passage. (${err.message})`);
     }
 
-    console.log('[FETCH] Returning null - content not found');
+    tsLog('FETCH', 'Returning null - content not found');
     return null;
   }, []);
 
   // Perform text matching (debounced)
   const performTextMatch = useCallback(
     debounce(async (words) => {
+      if (isMatchingInProgressRef.current) {
+        tsLog('MATCH', 'DROP (already in progress)');
+        return;
+      }
+      isMatchingInProgressRef.current = true;
+      tsLog('MATCH', 'START words=' + words.length);
       try {
         // Log summary: first 5 words ... last 5 words
         const wordsSummary = words.length <= 12
           ? words.join(' ')
           : words.slice(0, 5).join(' ') + ' ... ' + words.slice(-5).join(' ');
-        console.log('[MATCH] performTextMatch called with', words.length, 'words:', wordsSummary);
+        tsLog('MATCH', 'performTextMatch called with', words.length, 'words:', wordsSummary);
         if (!searchIndexRef.current) {
-          console.log('[MATCH] No search index loaded');
+          tsLog('MATCH', 'No search index loaded');
+          setIsMatching(false);
           return;
         }
         if (words.length < 8) {
-          console.log('[MATCH] Not enough words (need 8+):', words.length);
+          tsLog('MATCH', 'Not enough words (need 8+):', words.length);
+          setIsMatching(false);
           return;
         }
 
@@ -369,13 +296,15 @@ export default function App() {
               docId: lastMatch.docId,
               paragraphNum: lastMatch.paragraphNum + 1  // Predict next paragraph
             };
-            console.log('[MATCH] Temporal continuity detected: predicting',
+            tsLog('MATCH', 'Temporal continuity detected: predicting',
               prediction.docId, 'paragraph', prediction.paragraphNum);
           }
         }
 
-        const match = findBestMatch(words, searchIndexRef.current, matchContextRef.current, prediction);
-        console.log('[MATCH] findBestMatch result:', match ? `${match.docId} score=${match.score?.toFixed(2)}` : 'no match');
+        const cancelToken = { cancelled: false };
+        matchCancelTokenRef.current = cancelToken;
+        const match = await findBestMatch(words, searchIndexRef.current, matchContextRef.current, prediction, cancelToken);
+        tsLog('MATCH', 'findBestMatch result:', match ? `${match.docId} score=${match.score?.toFixed(2)}` : 'no match');
 
         if (match) {
           const ctx = matchContextRef.current;
@@ -404,7 +333,7 @@ export default function App() {
                      ', threshold:', SWITCH_THRESHOLD, ', early match:', isEarlyMatch, ')');
           }
 
-          console.log('[MATCH] Match found:', match.docId, match.section, 'paragraphNum:', match.paragraphNum, 'score:', match.score.toFixed(2));
+          tsLog('MATCH', 'Match found:', match.docId, match.section, 'paragraphNum:', match.paragraphNum, 'score:', match.score.toFixed(2));
 
           // Check if we're in the same section (full section is now displayed)
           const isSameSection = ctx.previousDocId === match.docId &&
@@ -432,12 +361,12 @@ export default function App() {
             if (isValidProgression && ctx.firstParagraphNum !== null) {
               // Valid progression: keep tracking from first matched paragraph
               firstParagraphIndex = ctx.firstParagraphNum - 1;
-              console.log('[MATCH] Valid progression:', isSameParagraph ? 'same paragraph' : isNextParagraph ? 'next paragraph' : isPrevParagraph ? 'previous paragraph' : 're-lock');
+              tsLog('MATCH', 'Valid progression:', isSameParagraph ? 'same paragraph' : isNextParagraph ? 'next paragraph' : isPrevParagraph ? 'previous paragraph' : 're-lock');
             } else {
               // Non-sequential jump or new section: reset highlight to current paragraph
               firstParagraphIndex = currentParagraphIndex;
               if (isSameSection && !isValidProgression) {
-                console.log('[MATCH] Non-sequential jump from paragraph', ctx.currentParagraphNum, 'to', match.paragraphNum, '- resetting highlight');
+                tsLog('MATCH', 'Non-sequential jump from paragraph', ctx.currentParagraphNum, 'to', match.paragraphNum, '- resetting highlight');
               }
             }
 
@@ -464,7 +393,7 @@ export default function App() {
               firstParagraphNum: firstParagraphIndex + 1  // Signals non-contiguous jump when it changes
             };
 
-            console.log('[MATCH] Paragraph-based highlight: paragraphs', firstParagraphIndex + 1, 'to', currentParagraphIndex + 1,
+            tsLog('MATCH', 'Paragraph-based highlight: paragraphs', firstParagraphIndex + 1, 'to', currentParagraphIndex + 1,
               '(chars', highlightStart, '-', highlightEnd, ')');
 
             // Update match history for temporal continuity (keep last 3)
@@ -507,508 +436,114 @@ export default function App() {
           }
         }
       } catch (err) {
-        debugLog('[MATCH] Error in performTextMatch:', err.message);
+        console.error('[MATCH] Error in performTextMatch:', err);
         setMatchState(prev => ({ ...prev, isLoading: false }));
       } finally {
+        isMatchingInProgressRef.current = false;
+        tsLog('MATCH', 'DONE');
         setIsMatching(false);
       }
     }, 250),  // Debounce interval - optimized for faster matching while maintaining stability
     [fetchDocumentContent]
   );
 
-  // Convert recorded WebM audio to raw PCM format for Vosk (16kHz, 16-bit, mono).
-  //
-  // Processing pipeline:
-  // 1. Fetch the recorded audio file (typically WebM/Opus from Expo on the web) into an ArrayBuffer.
-  // 2. Use the Web Audio API (AudioContext.decodeAudioData) to decode the compressed WebM data
-  //    into an uncompressed AudioBuffer (PCM Float32 samples at the original sample rate / channels).
-  // 3. Create an OfflineAudioContext configured for:
-  //      - 1 channel (mono)
-  //      - target sample rate of 16,000 Hz (Vosk's expected input rate)
-  //      - a length based on the original duration at 16 kHz
-  //    and render the decoded AudioBuffer into this context to resample and downmix to mono.
-  // 4. Extract the resampled mono Float32 channel data and convert each sample to a 16‑bit
-  //    signed integer (Int16) by:
-  //      - clamping the float sample to the range [-1.0, 1.0]
-  //      - scaling negative values by 0x8000 and non‑negative values by 0x7FFF
-  // 5. Return the underlying Int16Array buffer as a Uint8Array so it can be sent over the
-  //    WebSocket connection to the Vosk server as raw 16‑bit PCM audio.
-  //
-  // This function is only called on web platforms where window and AudioContext are available.
-  const convertToPCM = async (audioUri) => {
-    let audioContext = null;
-    
-    try {
-      // Fetch the audio file
-      const response = await fetch(audioUri);
-      const arrayBuffer = await response.arrayBuffer();
-      
-      // Check for browser environment and AudioContext availability before instantiating
-      if (typeof window === 'undefined') {
-        throw new Error('Web Audio API not available');
-      }
+  // Single error handler for all STT failures: called directly by nativeSTT/vosk for
+  // runtime errors (permission denial, mic capture failure, etc.), and also used in the
+  // startRecording catch for any unexpected synchronous throws from startListening().
+  const handleSpeechError = useCallback((err) => {
+    isRecordingActiveRef.current = false;
+    isMatchingInProgressRef.current = false;
+    if (matchCancelTokenRef.current) matchCancelTokenRef.current.cancelled = true;
+    setIsRecording(false);
+    performTextMatch.cancel();
+    const message = err?.message ?? String(err) ?? 'An unknown error occurred.';
+    const isPermissionError = message.toLowerCase().includes('permission') ||
+      message.toLowerCase().includes('access');
+    Alert.alert(
+      isPermissionError ? 'Permission Required' : 'Recognition Error',
+      message
+    );
+  }, [performTextMatch]);
 
-      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContextCtor) {
-        throw new Error('Web Audio API not available');
-      }
-
-      // Use Web Audio API to decode the audio
-      audioContext = new AudioContextCtor();
-      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-      
-      // Resample to 16kHz if needed and convert to mono
-      const targetSampleRate = 16000;
-      const offlineContext = new OfflineAudioContext(
-        1, // mono
-        Math.round(audioBuffer.duration * targetSampleRate),
-        targetSampleRate
-      );
-      
-      const source = offlineContext.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(offlineContext.destination);
-      source.start();
-      
-      const resampled = await offlineContext.startRendering();
-      
-      // Convert to 16-bit PCM
-      const pcmData = resampled.getChannelData(0);
-      const pcm16 = new Int16Array(pcmData.length);
-      for (let i = 0; i < pcmData.length; i++) {
-        // Clamp to [-1, 1] and convert to 16-bit integer
-        const s = Math.max(-1, Math.min(1, pcmData[i]));
-        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-      }
-      
-      return new Uint8Array(pcm16.buffer);
-    } catch (err) {
-      console.error('Failed to convert audio to PCM', err);
-      throw err;
-    } finally {
-      // Close AudioContext to free system resources
-      if (audioContext && audioContext.state !== 'closed') {
-        await audioContext.close();
-      }
-    }
-  };
-
-  async function startRecording() {
-    // Prevent starting a new recording if one is already in progress
-    if (recording || isRecording) {
-      debugLog('Recording already in progress, ignoring start request');
-      return;
-    }
-
-    try {
-      debugLog('Requesting permissions..');
-      const permission = await Audio.requestPermissionsAsync();
-      
-      if (permission.status !== 'granted') {
-        Alert.alert('Permission Denied', 'Please grant microphone permissions to record audio.');
+  const { startListening, stopListening } = useSpeechRecognition({
+    onPartial: useCallback((text) => {
+      if (!isRecordingActiveRef.current) {
+        tsLog('PARTIAL', 'DROP (recording stopped) words=' + text.split(/\s+/).filter(w=>w).length);
         return;
       }
-
-      // Connect to WebSocket server for transcription
-      try {
-        await connectWebSocket();
-      } catch (err) {
-        console.error('Failed to connect to transcription server', err);
-        Alert.alert('Warning', 'Could not connect to transcription server. Recording will work but transcription will not be available.');
-      }
-
-      // Clear previous transcription and match state
-      setTranscription('');
-      finalTranscriptionRef.current = '';
-      matchContextRef.current = {
-        previousDocId: null,
-        previousParagraphNum: null,
-        previousSection: null,
-        previousScore: 0,
-        firstParagraphNum: null,
-        currentParagraphNum: null,
-        matchHistory: [],
-        matchCount: 0  // Reset match counter
-      };
-      setMatchState({
-        isLoading: false,
-        matchedDocument: null,
-        matchedContent: null,
-        highlightPosition: null,
-        confidence: 0
-      });
-
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-
-      debugLog('Starting recording..');
-      
-      // Configure recording for 16kHz sample rate (required by Vosk)
-      const recordingOptions = {
-        android: {
-          extension: '.wav',
-          outputFormat: Audio.AndroidOutputFormat.DEFAULT,
-          audioEncoder: Audio.AndroidAudioEncoder.DEFAULT,
-          sampleRate: 16000,
-          numberOfChannels: 1,
-          bitRate: 128000,
-        },
-        ios: {
-          extension: '.wav',
-          audioQuality: Audio.IOSAudioQuality.HIGH,
-          sampleRate: 16000,
-          numberOfChannels: 1,
-          bitRate: 128000,
-          linearPCMBitDepth: 16,
-          linearPCMIsBigEndian: false,
-          linearPCMIsFloat: false,
-        },
-        web: {
-          // Web browsers don't support audio/wav container for MediaRecorder
-          // Using audio/webm which is widely supported. The audio will be
-          // converted to PCM (16kHz, mono) on the client side before sending to Vosk
-          mimeType: 'audio/webm',
-          bitsPerSecond: 128000,
-        },
-      };
-
-      const { recording: newRecording } = await Audio.Recording.createAsync(
-        recordingOptions
-      );
-      
-      setRecording(newRecording);
-      setIsRecording(true);
-      debugLog('Recording started');
-
-      // For web platform, set up real-time audio streaming
-      // DEBUG: Log conditions for real-time streaming setup
-      debugLog('[DEBUG] Platform.OS:', Platform.OS);
-      debugLog('[DEBUG] wsRef.current:', wsRef.current ? 'exists' : 'null');
-      debugLog('[DEBUG] WebSocket readyState:', wsRef.current?.readyState, '(OPEN=' + WebSocket.OPEN + ', CONNECTING=' + WebSocket.CONNECTING + ')');
-
-      if (Platform.OS === 'web' && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        debugLog('[DEBUG] Entered web real-time streaming setup block');
-        try {
-          // Get audio stream from microphone
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          webMediaStreamRef.current = stream;
-          debugLog('[DEBUG] Got media stream from getUserMedia');
-
-          // Create AudioContext at the browser's native sample rate
-          const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-          if (!AudioContextCtor) {
-            throw new Error('Web Audio API not available');
-          }
-
-          audioContextRef.current = new AudioContextCtor();
-          const ctx = audioContextRef.current;
-          debugLog('[DEBUG] AudioContext created, sampleRate:', ctx.sampleRate, 'state:', ctx.state);
-
-          // Create source from microphone stream
-          const source = ctx.createMediaStreamSource(stream);
-          sourceNodeRef.current = source;
-
-          // Try AudioWorkletNode first (modern, future-proof), fall back to ScriptProcessorNode
-          const targetSampleRate = 16000;
-          const sourceSampleRate = ctx.sampleRate;
-          let useWorklet = false;
-
-          if (ctx.audioWorklet) {
-            try {
-              // Define the AudioWorklet processor inline using a Blob URL
-              const workletCode = `
-                class PCMProcessor extends AudioWorkletProcessor {
-                  constructor() {
-                    super();
-                    this.samples = [];
-                    this.targetSampleRate = 16000;
-                    this.samplesPerChunk = this.targetSampleRate / 4; // ~250ms
-                  }
-
-                  process(inputs, outputs, parameters) {
-                    const input = inputs[0];
-                    if (input && input[0]) {
-                      const inputData = input[0];
-                      const resampleRatio = this.targetSampleRate / sampleRate;
-                      const resampledLength = Math.floor(inputData.length * resampleRatio);
-
-                      // Resample using linear interpolation
-                      for (let i = 0; i < resampledLength; i++) {
-                        const srcIndex = i / resampleRatio;
-                        const srcIndexFloor = Math.floor(srcIndex);
-                        const srcIndexCeil = Math.min(srcIndexFloor + 1, inputData.length - 1);
-                        const t = srcIndex - srcIndexFloor;
-                        const sample = inputData[srcIndexFloor] * (1 - t) + inputData[srcIndexCeil] * t;
-                        this.samples.push(sample);
-                      }
-
-                      // Send when we have enough samples
-                      if (this.samples.length >= this.samplesPerChunk) {
-                        this.port.postMessage({ samples: new Float32Array(this.samples) });
-                        this.samples = [];
-                      }
-                    }
-                    return true; // Keep processor alive
-                  }
-                }
-                registerProcessor('pcm-processor', PCMProcessor);
-              `;
-
-              const blob = new Blob([workletCode], { type: 'application/javascript' });
-              const workletUrl = URL.createObjectURL(blob);
-
-              await ctx.audioWorklet.addModule(workletUrl);
-              URL.revokeObjectURL(workletUrl);
-
-              const workletNode = new AudioWorkletNode(ctx, 'pcm-processor');
-              workletNodeRef.current = workletNode;
-
-              // Handle messages from the worklet (PCM data ready to send)
-              // Maximum audio chunks to keep (~15 seconds at 1 chunk per 500ms)
-              const MAX_AUDIO_CHUNKS = 30;
-
-              workletNode.port.onmessage = (event) => {
-                const samples = event.data.samples;
-
-                // Store chunk in circular buffer for limited playback
-                audioChunksRef.current.push(new Float32Array(samples));
-                if (audioChunksRef.current.length > MAX_AUDIO_CHUNKS) {
-                  audioChunksRef.current.shift(); // Remove oldest chunk
-                }
-
-                if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-                  return;
-                }
-
-                // Convert float32 to int16 PCM
-                const pcm16 = new Int16Array(samples.length);
-                for (let i = 0; i < samples.length; i++) {
-                  const s = Math.max(-1, Math.min(1, samples[i]));
-                  pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-                }
-
-                wsRef.current.send(new Uint8Array(pcm16.buffer));
-                debugLog('[DEBUG] PCM sent (worklet), samples:', pcm16.length, 'bytes:', pcm16.buffer.byteLength);
-              };
-
-              // Connect: microphone -> worklet (no destination = no audio output/feedback)
-              source.connect(workletNode);
-
-              useWorklet = true;
-              debugLog('[DEBUG] Real-time streaming setup COMPLETE (AudioWorklet method)');
-            } catch (workletErr) {
-              debugLog('[DEBUG] AudioWorklet failed, falling back to ScriptProcessor:', workletErr.message);
-            }
-          }
-
-          // Fallback to ScriptProcessorNode if AudioWorklet not available or failed
-          if (!useWorklet) {
-            const bufferSize = 4096;
-            const scriptProcessor = ctx.createScriptProcessor(bufferSize, 1, 1);
-            workletNodeRef.current = scriptProcessor; // Reuse ref for cleanup
-
-            const resampleRatio = targetSampleRate / sourceSampleRate;
-            let accumulatedSamples = [];
-            const samplesPerSecond = targetSampleRate / 4;
-
-            // Maximum audio chunks to keep (~15 seconds at 1 chunk per 250ms)
-            const MAX_AUDIO_CHUNKS_FALLBACK = 60;
-
-            scriptProcessor.onaudioprocess = (event) => {
-              const inputData = event.inputBuffer.getChannelData(0);
-              const resampledLength = Math.floor(inputData.length * resampleRatio);
-
-              for (let i = 0; i < resampledLength; i++) {
-                const srcIndex = i / resampleRatio;
-                const srcIndexFloor = Math.floor(srcIndex);
-                const srcIndexCeil = Math.min(srcIndexFloor + 1, inputData.length - 1);
-                const t = srcIndex - srcIndexFloor;
-                const sample = inputData[srcIndexFloor] * (1 - t) + inputData[srcIndexCeil] * t;
-                accumulatedSamples.push(sample);
-              }
-
-              if (accumulatedSamples.length >= samplesPerSecond) {
-                // Store in circular buffer for limited playback
-                audioChunksRef.current.push(new Float32Array(accumulatedSamples));
-                if (audioChunksRef.current.length > MAX_AUDIO_CHUNKS_FALLBACK) {
-                  audioChunksRef.current.shift(); // Remove oldest chunk
-                }
-
-                if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                  const pcm16 = new Int16Array(accumulatedSamples.length);
-                  for (let i = 0; i < accumulatedSamples.length; i++) {
-                    const s = Math.max(-1, Math.min(1, accumulatedSamples[i]));
-                    pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-                  }
-                  wsRef.current.send(new Uint8Array(pcm16.buffer));
-                  debugLog('[DEBUG] PCM sent (fallback), samples:', pcm16.length, 'bytes:', pcm16.buffer.byteLength);
-                }
-                accumulatedSamples = [];
-              }
-            };
-
-            source.connect(scriptProcessor);
-            scriptProcessor.connect(ctx.destination);
-            debugLog('[DEBUG] Real-time streaming setup COMPLETE (ScriptProcessor fallback)');
-          }
-        } catch (err) {
-          debugLog('[DEBUG] ERROR in streaming setup:', err.message || err);
-          debugLog('Failed to set up real-time streaming:', err);
-          Alert.alert('Warning', 'Real-time transcription may not be available: ' + err.message);
-        }
+      setTranscription(text);
+      const words = getLastWords(text, MATCH_WINDOW_WORDS).split(/\s+/).filter(w => w.length > 0);
+      // Only forward to matcher when word count grows by 3+ since last forward.
+      // Prevents SFSpeechRecognizer's high-frequency partials from flooding the debounce queue.
+      if (words.length >= 3 && words.length >= lastForwardedWordCountRef.current + 3) {
+        lastForwardedWordCountRef.current = words.length;
+        tsLog('PARTIAL', 'forward to matcher words=' + words.length + ' inProgress=' + isMatchingInProgressRef.current);
+        setIsMatching(true);
+        performTextMatch(words);
       } else {
-        debugLog('[DEBUG] SKIPPED streaming block - conditions not met');
+        tsLog('PARTIAL', 'throttle skip words=' + words.length + ' lastForwarded=' + lastForwardedWordCountRef.current);
       }
-    } catch (err) {
-      console.error('Failed to start recording', err);
-      Alert.alert('Error', 'Failed to start recording: ' + err.message);
-      closeWebSocket();
-    }
-  }
-
-  async function stopRecording() {
-    debugLog('Stopping recording..');
-
-    // Clear the recording interval if it exists (used for native platforms)
-    if (recordingIntervalRef.current) {
-      clearInterval(recordingIntervalRef.current);
-      recordingIntervalRef.current = null;
-    }
-
-    // Disconnect and clean up AudioWorklet or ScriptProcessor
-    if (workletNodeRef.current) {
-      try {
-        workletNodeRef.current.disconnect();
-        // Close the port if it's an AudioWorkletNode
-        if (workletNodeRef.current.port) {
-          workletNodeRef.current.port.close();
-        }
-      } catch (err) {
-        debugLog('Error disconnecting audio processor:', err);
+    }, [performTextMatch]),
+    onFinal: useCallback((text) => {
+      if (!isRecordingActiveRef.current) {
+        tsLog('FINAL', 'DROP (recording stopped) words=' + text.split(/\s+/).filter(w=>w).length);
+        return;
       }
-      workletNodeRef.current = null;
-    }
-
-    // Disconnect source node
-    if (sourceNodeRef.current) {
-      try {
-        sourceNodeRef.current.disconnect();
-      } catch (err) {
-        debugLog('Error disconnecting source node:', err);
+      setTranscription(text);
+      const words = getLastWords(text, MATCH_WINDOW_WORDS).split(/\s+/).filter(w => w.length > 0);
+      if (words.length >= 3) {
+        lastForwardedWordCountRef.current = words.length;
+        setIsMatching(true);
+        performTextMatch(words);
       }
-      sourceNodeRef.current = null;
-    }
+    }, [performTextMatch]),
+    onError: handleSpeechError,
+  });
 
-    // Stop and clean up web media stream tracks
-    if (webMediaStreamRef.current) {
-      try {
-        webMediaStreamRef.current.getTracks().forEach(track => track.stop());
-      } catch (err) {
-        debugLog('Error stopping media stream tracks:', err);
-      }
-      webMediaStreamRef.current = null;
-    }
+  async function startRecording() {
+    if (isRecording) return;
+    tsLog('RECORD', 'startRecording called');
 
-    // Clean up AudioContext if it exists — fire and forget so it doesn't block setIsRecording(false)
-    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      audioContextRef.current.close().catch(err => debugLog('Error closing AudioContext:', err));
-      audioContextRef.current = null;
-    }
-
-    if (!recording) {
-      return;
-    }
-
-    setIsRecording(false);
-    const currentRecording = recording;
-
-    try {
-      await currentRecording.stopAndUnloadAsync();
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-      });
-      const uri = currentRecording.getURI();
-      debugLog('Recording stopped at', uri);
-
-      // Clear audio chunks buffer since we don't need playback
-      audioChunksRef.current = [];
-
-      let pcmData = null;
-
-      // Send recorded audio to WebSocket for transcription
-      // For web: real-time streaming is already happening, so we skip sending the full recording
-      // For native platforms: send the complete recording after stopping
-      const isWeb = Platform.OS === 'web';
-      
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !isWeb) {
-        try {
-          // For native platforms (iOS/Android), audio is already in WAV format
-          // Read the audio file and extract PCM data
-          const response = await fetch(uri);
-          const arrayBuffer = await response.arrayBuffer();
-          const audioBytes = new Uint8Array(arrayBuffer);
-
-          // Standard WAV header size is 44 bytes; skip these to get raw PCM data
-          const WAV_HEADER_SIZE = 44;
-          pcmData =
-            audioBytes.length > WAV_HEADER_SIZE
-              ? audioBytes.subarray(WAV_HEADER_SIZE)
-              : audioBytes;
-
-          // Send audio data in chunks with backpressure handling
-          const chunkSize = 8000; // 8KB chunks
-          for (let offset = 0; offset < pcmData.length; offset += chunkSize) {
-            const chunk = pcmData.subarray(offset, offset + chunkSize);
-            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-              wsRef.current.send(chunk);
-              // Small delay to prevent overwhelming the WebSocket connection
-              if (offset + chunkSize < pcmData.length) {
-                await new Promise(resolve => setTimeout(resolve, 10));
-              }
-            } else {
-              break;
-            }
-          }
-          
-          debugLog('Audio sent to transcription server');
-        } catch (err) {
-          console.error('Failed to send audio to transcription server', err);
-        }
-      }
-      
-      // Close WebSocket connection after a delay to allow final transcription processing
-      // For web: use longer timeout since we're waiting for final results from streamed audio
-      // For native: timeout based on audio length
-      const BASE_TIMEOUT_MS = 3000; // Increased base timeout for final transcription
-      
-      let timeoutMs = BASE_TIMEOUT_MS;
-      if (!isWeb && pcmData) {
-        const BYTES_PER_SAMPLE = 2; // 16-bit PCM
-        const PROCESSING_TIME_PER_SECOND = 100; // Additional ms per second of audio
-        const audioLengthEstimate = pcmData.length / (16000 * BYTES_PER_SAMPLE);
-        timeoutMs = Math.max(BASE_TIMEOUT_MS, audioLengthEstimate * PROCESSING_TIME_PER_SECOND + BASE_TIMEOUT_MS);
-      }
-      
-      setTimeout(() => {
-        closeWebSocket();
-      }, timeoutMs);
-    } catch (err) {
-      console.error('Failed to stop recording', err);
-      Alert.alert('Error', 'Failed to stop recording: ' + err.message);
-      closeWebSocket();
-    } finally {
-      setRecording(null);
-    }
-  }
-
-  // Cleanup WebSocket on unmount
-  React.useEffect(() => {
-    return () => {
-      closeWebSocket();
+    // Clear previous transcription and match state
+    setTranscription('');
+    isRecordingActiveRef.current = true;
+    isMatchingInProgressRef.current = false;
+    lastForwardedWordCountRef.current = 0;
+    matchContextRef.current = {
+      previousDocId: null,
+      previousParagraphNum: null,
+      previousSection: null,
+      previousScore: 0,
+      firstParagraphNum: null,
+      currentParagraphNum: null,
+      matchHistory: [],
+      matchCount: 0
     };
-  }, []);
+    setMatchState({
+      isLoading: false,
+      matchedDocument: null,
+      matchedContent: null,
+      highlightPosition: null,
+      confidence: 0
+    });
+    setIsRecording(true);
+    try {
+      await startListening();
+    } catch (err) {
+      handleSpeechError(err);
+    }
+  }
+
+  function stopRecording() {
+    tsLog('RECORD', 'stopRecording called');
+    isRecordingActiveRef.current = false;
+    isMatchingInProgressRef.current = false;
+    if (matchCancelTokenRef.current) matchCancelTokenRef.current.cancelled = true;
+    setIsRecording(false);
+    lastForwardedWordCountRef.current = 0;
+    performTextMatch.cancel();
+    stopListening();
+  }
 
   return (
     <PaperProvider theme={customTheme}>

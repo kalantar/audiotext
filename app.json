@@ -13,17 +13,40 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Allow FollowAlong to recognize your speech to match text.",
+        "NSMicrophoneUsageDescription": "Allow FollowAlong to use your microphone for speech recognition.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bundleIdentifier": "com.4yfuqyswr.followalong"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow FollowAlong to use your microphone for speech recognition.",
+          "speechRecognitionPermission": "Allow FollowAlong to recognize your speech to match text."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "bba3e5b5-f75a-4ab1-a0b3-b0efab500595"
+      }
     }
   }
 }

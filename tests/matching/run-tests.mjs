@@ -83,7 +83,7 @@ for (const testFile of testFiles) {
         matchHistory: []
       } : {};
 
-      const match = findBestMatch(words, searchIndex, context);
+      const match = await findBestMatch(words, searchIndex, context);
 
       let passed = false;
       let statusSymbol = '';
