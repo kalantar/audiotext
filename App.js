@@ -7,6 +7,7 @@ import { findBestMatch, findHighlightPosition, getDocumentMetadata, debounce } f
 import textAssets from './assets/textAssets';
 import { useSpeechRecognition } from './hooks/useSpeechRecognition';
 import { tsLog } from './utils/log';
+import { BASE_FONT_SIZE, BODY_LINE_HEIGHT, SMALL_FONT_SIZE } from './utils/typography';
 
 // Development-only logging helper for non-timestamped messages (e.g. stickiness decisions)
 const debugLog = (...args) => {
@@ -62,14 +63,13 @@ const customTheme = {
     bodyLarge: {
       ...MD3LightTheme.fonts.bodyLarge,
       fontFamily: 'Georgia', // Serif for reading
-      fontSize: 18,
-      lineHeight: 28,
+      fontSize: BASE_FONT_SIZE,
+      lineHeight: BODY_LINE_HEIGHT,
     },
     bodyMedium: {
       ...MD3LightTheme.fonts.bodyMedium,
       fontFamily: 'Georgia',
-      fontSize: 16,
-      lineHeight: 24,
+      fontSize: SMALL_FONT_SIZE,
     },
   },
 };
