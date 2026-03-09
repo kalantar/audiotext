@@ -53,7 +53,7 @@ const CATEGORIES = [
 const CATEGORY_AUTHOR_LABELS = {
   '/library/authoritative-texts/bahaullah/': "Bahá'u'lláh",
   '/library/authoritative-texts/the-bab/': 'The Báb',
-  '/library/authoritative-texts/abdul-baha/': "\u2018Abdu\u2019l-Bah\u00e1",
+  '/library/authoritative-texts/abdul-baha/': "'Abdu'l-Bahá",
   '/library/authoritative-texts/shoghi-effendi/': 'Shoghi Effendi',
   '/library/authoritative-texts/the-universal-house-of-justice/': 'Universal House of Justice',
   '/library/authoritative-texts/compilations/': 'Compilations',
