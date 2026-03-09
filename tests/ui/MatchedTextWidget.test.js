@@ -3,6 +3,7 @@ import { render } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 import { Provider as PaperProvider, MD3LightTheme } from 'react-native-paper';
 import MatchedTextWidget from '../../components/MatchedTextWidget';
+import { BASE_FONT_SIZE } from '../../utils/typography';
 
 // Wrapper with theme provider
 const renderWithTheme = (component) => {
@@ -79,6 +80,22 @@ describe('MatchedTextWidget - Layout', () => {
     // Should NOT have different font size or weight (inherits from parent)
     expect(style.fontSize).toBeUndefined();
     expect(style.fontWeight).toBeUndefined();
+  });
+
+  test('body text uses BASE_FONT_SIZE (16px)', () => {
+    const { getByText } = renderWithTheme(
+      <MatchedTextWidget
+        matchedDocument={mockDocument}
+        fullContent={mockFullContent}
+        highlightPosition={null}
+        confidence={0.5}
+        isLoading={false}
+        isMatching={false}
+      />
+    );
+    const content = getByText(/First paragraph/);
+    const style = StyleSheet.flatten(content.props.style);
+    expect(style.fontSize).toBe(BASE_FONT_SIZE);
   });
 
   test('highlight position updates when changed', () => {
