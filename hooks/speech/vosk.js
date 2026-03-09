@@ -40,19 +40,22 @@ export function createVoskSTT({ onPartial, onFinal, onError }) {
           console.warn('[vosk] Received non-JSON message from server:', String(event.data).slice(0, 100));
           return;
         }
-        // Callback errors are not caught here. If onPartial/onFinal throw synchronously,
-        // the error escapes the onmessage handler uncaught. Keep those callbacks non-throwing.
-        if (data.partial) {
-          const combined = finalAccumulated
-            ? finalAccumulated + ' ' + data.partial
-            : data.partial;
-          onPartial(combined);
-        } else if (data.final && data.final.trim().length > 0) {
-          const newFinal = finalAccumulated
-            ? finalAccumulated + ' ' + data.final
-            : data.final;
-          finalAccumulated = newFinal;
-          onFinal(newFinal);
+        try {
+          if (data.partial) {
+            const combined = finalAccumulated
+              ? finalAccumulated + ' ' + data.partial
+              : data.partial;
+            onPartial(combined);
+          } else if (data.final && data.final.trim().length > 0) {
+            const newFinal = finalAccumulated
+              ? finalAccumulated + ' ' + data.final
+              : data.final;
+            finalAccumulated = newFinal;
+            onFinal(newFinal);
+          }
+        } catch (cbErr) {
+          console.error('[vosk] Callback threw during onmessage:', cbErr);
+          onError(cbErr);
         }
       };
       ws.onclose = () => { ws = null; };

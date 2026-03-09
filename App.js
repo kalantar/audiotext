@@ -101,8 +101,8 @@ export default function App() {
   // the isRecordingActiveRef guard prevents new calls from entering after stop anyway.
   const isMatchingInProgressRef = useRef(false);
   // Cancel token for the in-flight findBestMatch call. Set cancelled=true in stopRecording
-  // so findBestMatch aborts at the next chunk boundary (~200ms) rather than running to
-  // completion (potentially 10-30s) before the Stop button press is processed.
+  // so findBestMatch aborts at the next chunk boundary (up to ~250ms per chunk of 50
+  // candidates on Hermes) rather than running to completion (10-30s) before Stop is processed.
   const matchCancelTokenRef = useRef(null);
   // Throttle onPartial: only forward to matcher when word count grows by 3+
   const lastForwardedWordCountRef = useRef(0);
@@ -157,7 +157,11 @@ export default function App() {
   const fetchDocumentContent = useCallback(async (docId, section, paragraphNum) => {
     // Cache by section (not paragraph) since we now fetch full sections
     const cacheKey = `${docId}-${section}`;
-    if (documentCacheRef.current[cacheKey]) {
+    if (cacheKey in documentCacheRef.current) {
+      if (documentCacheRef.current[cacheKey] === null) {
+        tsLog('FETCH', 'Skip (previously failed):', cacheKey);
+        return null;
+      }
       tsLog('FETCH', 'Cache hit:', cacheKey);
       return documentCacheRef.current[cacheKey];
     }
@@ -237,7 +241,8 @@ export default function App() {
         return content;
       }
     } catch (err) {
-      console.error('[FETCH] Error loading document:', err.message);
+      console.error('[FETCH] Error loading document:', err);
+      documentCacheRef.current[cacheKey] = null; // prevent retry and repeated alert this session
       Alert.alert('Content Unavailable', `Could not load the matched passage. (${err.message})`);
     }
 
@@ -431,7 +436,7 @@ export default function App() {
           }
         }
       } catch (err) {
-        console.error('[MATCH] Error in performTextMatch:', err?.message ?? err);
+        console.error('[MATCH] Error in performTextMatch:', err);
         setMatchState(prev => ({ ...prev, isLoading: false }));
       } finally {
         isMatchingInProgressRef.current = false;
@@ -441,6 +446,24 @@ export default function App() {
     }, 250),  // Debounce interval - optimized for faster matching while maintaining stability
     [fetchDocumentContent]
   );
+
+  // Single error handler for all STT failures: called directly by nativeSTT/vosk for
+  // runtime errors (permission denial, mic capture failure, etc.), and also used in the
+  // startRecording catch for any unexpected synchronous throws from startListening().
+  const handleSpeechError = useCallback((err) => {
+    isRecordingActiveRef.current = false;
+    isMatchingInProgressRef.current = false;
+    if (matchCancelTokenRef.current) matchCancelTokenRef.current.cancelled = true;
+    setIsRecording(false);
+    performTextMatch.cancel();
+    const message = err?.message ?? String(err) ?? 'An unknown error occurred.';
+    const isPermissionError = message.toLowerCase().includes('permission') ||
+      message.toLowerCase().includes('access');
+    Alert.alert(
+      isPermissionError ? 'Permission Required' : 'Recognition Error',
+      message
+    );
+  }, [performTextMatch]);
 
   const { startListening, stopListening } = useSpeechRecognition({
     onPartial: useCallback((text) => {
@@ -474,21 +497,7 @@ export default function App() {
         performTextMatch(words);
       }
     }, [performTextMatch]),
-    onError: useCallback((err) => {
-      // Reset recording state — both nativeSTT and vosk call onError directly without
-      // throwing, so the startRecording catch never fires for runtime errors like
-      // permission denial or microphone capture failure.
-      isRecordingActiveRef.current = false;
-      setIsRecording(false);
-      performTextMatch.cancel();
-      const message = err?.message ?? String(err) ?? 'An unknown error occurred.';
-      const isPermissionError = message.toLowerCase().includes('permission') ||
-        message.toLowerCase().includes('access');
-      Alert.alert(
-        isPermissionError ? 'Permission Required' : 'Recognition Error',
-        message
-      );
-    }, [performTextMatch]),
+    onError: handleSpeechError,
   });
 
   async function startRecording() {
@@ -521,9 +530,7 @@ export default function App() {
     try {
       await startListening();
     } catch (err) {
-      isRecordingActiveRef.current = false;
-      setIsRecording(false);
-      Alert.alert('Error', 'Failed to start recording: ' + (err?.message ?? err));
+      handleSpeechError(err);
     }
   }
 

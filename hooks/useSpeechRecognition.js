@@ -38,7 +38,7 @@ export function useSpeechRecognition({ onPartial, onFinal, onError }) {
       }
     } catch (err) {
       setIsListening(false);
-      onError(err);
+      throw err; // re-throw — caller (startRecording) handles user-facing error via handleSpeechError
     }
   }, [onPartial, onFinal, onError, nativeStart]);
 

@@ -37,6 +37,8 @@ export function useNativeSTT({ onPartial, onFinal, onError }) {
   useEffect(() => { onPartialRef.current = onPartial; }, [onPartial]);
   useEffect(() => { onFinalRef.current = onFinal; }, [onFinal]);
   useEffect(() => { onErrorRef.current = onError; }, [onError]);
+  // Set to true by stopListening so the 'end' event handler knows this was intentional.
+  const stoppingIntentionallyRef = useRef(false);
 
   useSpeechRecognitionEvent('result', (event) => {
     if (!event.results?.length) { tsLog('NATIVE', 'result event: empty results'); return; }
@@ -56,17 +58,31 @@ export function useNativeSTT({ onPartial, onFinal, onError }) {
     onErrorRef.current(new Error(ERROR_MESSAGES[code] ?? `Speech recognition error (${code})`));
   });
 
+  // On-device recognition can self-terminate (e.g. after extended silence on some iOS versions
+  // even with continuous: true). If the session ends while the caller thinks it's still active,
+  // surface an error so the UI resets rather than silently getting stuck in "recording" state.
+  // stoppingIntentionallyRef is set by stopListening so intentional abort() doesn't trigger this.
+  useSpeechRecognitionEvent('end', () => {
+    tsLog('NATIVE', 'end event fired intentional=' + stoppingIntentionallyRef.current);
+    if (stoppingIntentionallyRef.current) {
+      stoppingIntentionallyRef.current = false;
+      return;
+    }
+    onErrorRef.current(new Error('Speech recognition ended unexpectedly. Tap the microphone to try again.'));
+  });
+
   const startListening = useCallback(async () => {
     tsLog('NATIVE', 'startListening called');
+    stoppingIntentionallyRef.current = false;
     let granted;
     try {
       ({ granted } = await ExpoSpeechRecognitionModule.requestPermissionsAsync());
     } catch (err) {
-      onError(new Error('Failed to request speech recognition permissions: ' + err.message));
+      onErrorRef.current(new Error('Failed to request speech recognition permissions: ' + err.message));
       return;
     }
     if (!granted) {
-      onError(new Error('Microphone access is required. Please enable it in Settings and try again.'));
+      onErrorRef.current(new Error('Microphone access is required. Please enable it in Settings and try again.'));
       return;
     }
     tsLog('NATIVE', 'ExpoSpeechRecognitionModule.start() called');
@@ -78,12 +94,13 @@ export function useNativeSTT({ onPartial, onFinal, onError }) {
         interimResults: true,
       });
     } catch (err) {
-      onError(new Error('Failed to start speech recognition: ' + err.message));
+      onErrorRef.current(new Error('Failed to start speech recognition: ' + err.message));
     }
-  }, [onError]);
+  }, []);
 
   const stopListening = useCallback(() => {
     tsLog('NATIVE', 'stopListening → abort() called');
+    stoppingIntentionallyRef.current = true;
     try {
       // abort() prevents further audio processing — stop() would flush the buffer and
       // flood the bridge with result events for many seconds. Any in-flight result events
