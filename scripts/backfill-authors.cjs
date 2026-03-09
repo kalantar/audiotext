@@ -33,6 +33,8 @@ async function main() {
   console.log('Backfilling author metadata');
   console.log('='.repeat(50));
 
+  await fs.mkdir(ASSETS_TEXTS_DIR, { recursive: true });
+
   // Load existing index for category info
   const indexJson = await fs.readFile(PUBLIC_INDEX_FILE, 'utf-8');
   const index = JSON.parse(indexJson);
