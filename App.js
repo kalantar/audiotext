@@ -624,7 +624,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f0', // Subtle warm background for reading comfort
     alignItems: 'center',
     justifyContent: 'flex-start',
-    padding: 20,
+    ...Platform.select({
+      web: { padding: 20 },
+      default: { paddingHorizontal: 8, paddingVertical: 20 },
+    }),
   },
   fab: {
     position: 'absolute',
