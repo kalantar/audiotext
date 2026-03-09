@@ -626,7 +626,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     ...Platform.select({
       web: { padding: 20 },
-      default: { paddingHorizontal: 8, paddingVertical: 20 },
+      default: { paddingHorizontal: 0, paddingVertical: 20 },
     }),
   },
   fab: {

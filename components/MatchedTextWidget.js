@@ -316,7 +316,7 @@ const MatchedTextWidget = ({
 const styles = StyleSheet.create({
   paperCard: {
     flex: 1,
-    margin: 8,
+    margin: 0,
     backgroundColor: '#fdfaf5', // Off-white paper
     borderRadius: 8,
     overflow: 'hidden', // Contain content within rounded corners
