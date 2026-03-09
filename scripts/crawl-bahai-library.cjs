@@ -48,6 +48,20 @@ const CATEGORIES = [
   // '/library/other-literature/publications-individual-authors/',
 ];
 
+// Maps category URL path to display author label.
+// Used as fallback when the xhtml has no <meta name="author"> tag.
+const CATEGORY_AUTHOR_LABELS = {
+  '/library/authoritative-texts/bahaullah/': "Bahá'u'lláh",
+  '/library/authoritative-texts/the-bab/': 'The Báb',
+  '/library/authoritative-texts/abdul-baha/': "\u2018Abdu\u2019l-Bah\u00e1",
+  '/library/authoritative-texts/shoghi-effendi/': 'Shoghi Effendi',
+  '/library/authoritative-texts/the-universal-house-of-justice/': 'Universal House of Justice',
+  '/library/authoritative-texts/compilations/': 'Compilations',
+  '/library/authoritative-texts/prayers/': 'Prayers',
+  '/library/other-literature/official-statements-commentaries/': 'Official Statements',
+  '/library/other-literature/publications-individual-authors/': 'Individual Authors',
+};
+
 // Common stop words to exclude from token index
 const STOP_WORDS = new Set([
   'a', 'an', 'the', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'be', 'been',
@@ -395,7 +409,7 @@ async function crawlDocument(doc) {
     return {
       docId: doc.id,
       title: metadata.title || doc.title,
-      author: metadata.author || 'Unknown',
+      author: metadata.author || CATEGORY_AUTHOR_LABELS[doc.category] || 'Unknown',
       url,
       xhtmlUrl: BASE_URL + doc.xhtmlUrl,
       category: doc.category,
