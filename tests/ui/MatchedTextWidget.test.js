@@ -81,6 +81,22 @@ describe('MatchedTextWidget - Layout', () => {
     expect(style.fontWeight).toBeUndefined();
   });
 
+  test('body text uses BASE_FONT_SIZE (16px)', () => {
+    const { getByText } = renderWithTheme(
+      <MatchedTextWidget
+        matchedDocument={mockDocument}
+        fullContent={mockFullContent}
+        highlightPosition={null}
+        confidence={0.5}
+        isLoading={false}
+        isMatching={false}
+      />
+    );
+    const content = getByText(/First paragraph/);
+    const style = StyleSheet.flatten(content.props.style);
+    expect(style.fontSize).toBe(16);
+  });
+
   test('highlight position updates when changed', () => {
     const { getByText, rerender } = renderWithTheme(
       <MatchedTextWidget
