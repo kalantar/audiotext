@@ -177,8 +177,9 @@ function extractMetadata(html) {
     metadata.title = titleMatch[1].trim();
   }
 
-  // Extract author from meta tag
-  const authorMatch = html.match(/<meta[^>]+name="author"[^>]+content="([^"]+)"/i);
+  // Extract author from meta tag (handles both attribute orderings)
+  const authorMatch = html.match(/<meta[^>]+name="author"[^>]+content="([^"]+)"/i)
+                   || html.match(/<meta[^>]+content="([^"]+)"[^>]+name="author"/i);
   if (authorMatch) {
     metadata.author = authorMatch[1].trim();
   }
