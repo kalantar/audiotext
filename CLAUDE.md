@@ -132,7 +132,7 @@ Speech recognition is split into three layers:
 - StyleSheet for styling (no inline styles)
 - Always request audio permissions before recording
 - Clean up audio resources in `useEffect` cleanup functions
-- Wrap async operations in try-catch with `Alert.alert()` for user errors
+- Wrap async operations in try-catch; surface user errors via `setErrorMessage(message)` which displays a dismissible `Snackbar` (not `Alert.alert` — it's a no-op on web)
 - Use `useRef` for values that persist across renders but don't trigger re-renders
 - Keep state updates minimal and batch when possible
 
