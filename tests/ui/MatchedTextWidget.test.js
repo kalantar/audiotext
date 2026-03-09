@@ -3,6 +3,7 @@ import { render } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 import { Provider as PaperProvider, MD3LightTheme } from 'react-native-paper';
 import MatchedTextWidget from '../../components/MatchedTextWidget';
+import { BASE_FONT_SIZE } from '../../utils/typography';
 
 // Wrapper with theme provider
 const renderWithTheme = (component) => {
@@ -94,7 +95,7 @@ describe('MatchedTextWidget - Layout', () => {
     );
     const content = getByText(/First paragraph/);
     const style = StyleSheet.flatten(content.props.style);
-    expect(style.fontSize).toBe(16);
+    expect(style.fontSize).toBe(BASE_FONT_SIZE);
   });
 
   test('highlight position updates when changed', () => {

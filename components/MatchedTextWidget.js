@@ -23,7 +23,7 @@ import {
   useTheme
 } from 'react-native-paper';
 import { tsLog } from '../utils/log';
-import { BASE_FONT_SIZE, BODY_LINE_HEIGHT } from '../utils/typography';
+import { BASE_FONT_SIZE, BODY_LINE_HEIGHT, SMALL_FONT_SIZE } from '../utils/typography';
 
 /**
  * Document Header Component
@@ -386,12 +386,12 @@ const styles = StyleSheet.create({
   },
   textContent: {
     fontFamily: 'Georgia',
-    fontSize: BASE_FONT_SIZE,      // was 18
-    lineHeight: BODY_LINE_HEIGHT,  // was 28
+    fontSize: BASE_FONT_SIZE,
+    lineHeight: BODY_LINE_HEIGHT,
     color: '#2c2c2c',
   },
   contextText: {
-    fontSize: 14,
+    fontSize: SMALL_FONT_SIZE,
     color: '#888',
   },
   highlightedText: {
