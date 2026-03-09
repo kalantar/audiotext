@@ -124,10 +124,10 @@ describe('App - Native STT Integration', () => {
 
   test('permission denied shows error snackbar and returns to idle', async () => {
     ExpoSpeechRecognitionModule.requestPermissionsAsync.mockResolvedValue({ granted: false });
-    const { getByText, queryByText } = render(<App />);
+    const { getByText, queryByTestId } = render(<App />);
     await act(async () => { fireEvent.press(getByText('Record')); });
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)); });
-    expect(queryByText(/permission/i)).toBeTruthy(); // Snackbar shows permission error
+    expect(queryByTestId('error-snackbar')).toBeTruthy(); // Snackbar visible
     expect(getByText('Record')).toBeTruthy(); // FAB returned to idle
   });
 

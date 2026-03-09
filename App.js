@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, Alert, ScrollView, Platform, SafeAreaView } from 'react-native';
-import { Provider as PaperProvider, MD3LightTheme, FAB, IconButton, Portal, Modal } from 'react-native-paper';
+import { StyleSheet, Text, View, ScrollView, Platform, SafeAreaView } from 'react-native';
+import { Provider as PaperProvider, MD3LightTheme, FAB, IconButton, Portal, Modal, Snackbar } from 'react-native-paper';
 import MatchedTextWidget from './components/MatchedTextWidget';
 import { findBestMatch, findHighlightPosition, getDocumentMetadata, debounce } from './utils/textMatcher';
 import textAssets from './assets/textAssets';
@@ -84,6 +84,7 @@ export default function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [transcription, setTranscription] = useState('');
   const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(null);
 
   // Text matching state
   const [isMatching, setIsMatching] = useState(false);
@@ -148,10 +149,7 @@ export default function App() {
         }
       } catch (err) {
         console.error('[MATCH] Failed to load search index:', err.message);
-        Alert.alert(
-          'Content Unavailable',
-          'Could not load the text library. Text matching will not be available this session.'
-        );
+        setErrorMessage('Could not load the text library. Text matching will not be available this session.');
       }
     };
 
@@ -248,8 +246,8 @@ export default function App() {
       }
     } catch (err) {
       console.error('[FETCH] Error loading document:', err);
-      documentCacheRef.current[cacheKey] = null; // prevent retry and repeated alert this session
-      Alert.alert('Content Unavailable', `Could not load the matched passage. (${err.message})`);
+      documentCacheRef.current[cacheKey] = null; // prevent retry and repeated snackbar this session
+      setErrorMessage(`Could not load the matched passage. (${err.message})`);
     }
 
     tsLog('FETCH', 'Returning null - content not found');
@@ -463,12 +461,7 @@ export default function App() {
     setIsRecording(false);
     performTextMatch.cancel();
     const message = err?.message ?? String(err) ?? 'An unknown error occurred.';
-    const isPermissionError = message.toLowerCase().includes('permission') ||
-      message.toLowerCase().includes('access');
-    Alert.alert(
-      isPermissionError ? 'Permission Required' : 'Recognition Error',
-      message
-    );
+    setErrorMessage(message);
   }, [performTextMatch]);
 
   const { startListening, stopListening } = useSpeechRecognition({
@@ -610,6 +603,16 @@ export default function App() {
           </ScrollView>
         </Modal>
       </Portal>
+
+      <Snackbar
+        testID="error-snackbar"
+        visible={errorMessage !== null}
+        onDismiss={() => setErrorMessage(null)}
+        duration={4000}
+        action={{ label: 'Dismiss', onPress: () => setErrorMessage(null) }}
+      >
+        {errorMessage}
+      </Snackbar>
     </PaperProvider>
   );
 }
