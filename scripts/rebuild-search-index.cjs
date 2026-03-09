@@ -31,6 +31,20 @@ const STOP_WORDS = new Set([
   'their', 'my', 'your', 'our', 'i', 'you', 'we', 'who', 'which', 'whom'
 ]);
 
+// Maps category URL path to display author label.
+// Applied during index rebuild when a text file has author: 'Unknown'.
+const CATEGORY_AUTHOR_LABELS = {
+  '/library/authoritative-texts/bahaullah/': "Bahá'u'lláh",
+  '/library/authoritative-texts/the-bab/': 'The Báb',
+  '/library/authoritative-texts/abdul-baha/': '\u2018Abdu\u2019l-Bah\u00e1',
+  '/library/authoritative-texts/shoghi-effendi/': 'Shoghi Effendi',
+  '/library/authoritative-texts/the-universal-house-of-justice/': 'Universal House of Justice',
+  '/library/authoritative-texts/compilations/': 'Compilations',
+  '/library/authoritative-texts/prayers/': 'Prayers',
+  '/library/other-literature/official-statements-commentaries/': 'Official Statements',
+  '/library/other-literature/publications-individual-authors/': 'Individual Authors',
+};
+
 /**
  * Tokenize text into searchable words
  */
@@ -75,9 +89,13 @@ function generateSearchIndex(documents) {
   for (const doc of documents) {
     if (!doc || !doc.docId || !doc.sections) continue;
 
+    const resolvedAuthor = (doc.author && doc.author !== 'Unknown')
+      ? doc.author
+      : (CATEGORY_AUTHOR_LABELS[doc.category] || 'Unknown');
+
     index.metadata[doc.docId] = {
       title: doc.title || 'Untitled',
-      author: doc.author || 'Unknown',
+      author: resolvedAuthor,
       url: doc.url || '',
       category: doc.category || ''
     };
