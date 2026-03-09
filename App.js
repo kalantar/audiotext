@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, Alert, ScrollView, Platform, SafeAreaView, Dimensions } from 'react-native';
+import { StyleSheet, Text, View, Alert, ScrollView, Platform, SafeAreaView } from 'react-native';
 import { Provider as PaperProvider, MD3LightTheme, FAB, IconButton, Portal, Modal } from 'react-native-paper';
 import MatchedTextWidget from './components/MatchedTextWidget';
 import { findBestMatch, findHighlightPosition, getDocumentMetadata, debounce } from './utils/textMatcher';
@@ -624,7 +624,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f0', // Subtle warm background for reading comfort
     alignItems: 'center',
     justifyContent: 'flex-start',
-    padding: 20,
+    ...Platform.select({
+      web: { padding: 20 },
+      default: { paddingHorizontal: 0, paddingVertical: 20 },
+    }),
   },
   fab: {
     position: 'absolute',
@@ -650,9 +653,6 @@ const styles = StyleSheet.create({
     maxWidth: 900,  // Constrain on larger screens
     alignSelf: 'center',
     marginBottom: 80,  // Space for FAB
-    ...(Platform.OS === 'ios' && {
-      height: Dimensions.get('window').height - 200,  // iOS: explicit height minus chrome
-    }),
   },
   debugModal: {
     backgroundColor: '#fdfaf5', // Match theme surface color
