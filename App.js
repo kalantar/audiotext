@@ -548,23 +548,14 @@ export default function App() {
     <PaperProvider theme={customTheme}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.container}>
-          <FAB
-            icon={isRecording ? "stop" : "microphone"}
-            label={isRecording ? "Stop" : "Record"}
-            mode="elevated"
-            size="large"
-            animated={true}
-            onPress={isRecording ? stopRecording : startRecording}
-            style={[styles.fab, isRecording && styles.fabRecording]}
-            color={isRecording ? '#fff' : undefined}
-          />
-
-          <IconButton
-            icon="bug"
-            size={20}
-            onPress={() => setShowDebugPanel(true)}
-            style={styles.debugButton}
-          />
+          <View style={styles.topBar}>
+            <IconButton
+              icon="bug"
+              size={20}
+              onPress={() => setShowDebugPanel(true)}
+              style={styles.debugButton}
+            />
+          </View>
 
           <View style={styles.readingSurface}>
             <MatchedTextWidget
@@ -575,6 +566,18 @@ export default function App() {
               confidence={matchState.confidence}
               isMatching={isMatching}
               isRecording={isRecording}
+            />
+          </View>
+
+          <View style={styles.fabArea}>
+            <FAB
+              icon={isRecording ? "stop" : "microphone"}
+              label={isRecording ? "Stop" : "Record"}
+              mode="elevated"
+              size="large"
+              onPress={isRecording ? stopRecording : startRecording}
+              style={[styles.fab, isRecording && styles.fabRecording]}
+              color={isRecording ? '#fff' : undefined}
             />
           </View>
 
@@ -628,26 +631,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-start',
     ...Platform.select({
-      web: { padding: 20 },
-      default: { paddingHorizontal: 0, paddingVertical: 20 },
+      web: { paddingTop: 20, paddingHorizontal: 20, paddingBottom: 0 },
+      default: { paddingHorizontal: 0, paddingTop: 20, paddingBottom: 0 },
     }),
   },
+  fabArea: {
+    width: '100%',
+    alignItems: 'center',
+    paddingVertical: 16,
+  },
   fab: {
-    position: 'absolute',
-    alignSelf: 'center',  // Center horizontally
-    bottom: 20,
-    margin: 16,
     backgroundColor: '#9d5c0d', // Warm brown primary color
-    zIndex: 1000,
-    elevation: 5,  // Android elevation
   },
   fabRecording: {
     backgroundColor: '#d32f2f', // Red background when recording
   },
+  topBar: {
+    width: '100%',
+    maxWidth: 900,
+    alignItems: 'flex-end',
+  },
   debugButton: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
     margin: 0,
   },
   readingSurface: {
@@ -655,7 +659,6 @@ const styles = StyleSheet.create({
     width: '100%',  // Full width on mobile
     maxWidth: 900,  // Constrain on larger screens
     alignSelf: 'center',
-    marginBottom: 80,  // Space for FAB
   },
   debugModal: {
     backgroundColor: '#fdfaf5', // Match theme surface color
